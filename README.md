@@ -9,5 +9,7 @@ Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](re
 ## Contributors
 
 Niklas Peter
+
 Dima
+
 [Christof Stein](mailto:christof.stein@student.uibk.ac.at).
