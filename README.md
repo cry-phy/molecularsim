@@ -4,7 +4,7 @@ This repository contains the software and resources for *Laboratory Course Compu
 
 ## Resources
 
-Resources such as [Lab Guide](resources/MC_MOL.pdf) and [recommended Reading](resources/Essentials_Comp_Chem_Cramer.pdf) can be found in the [resources](resources) directory.
+Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](resources/Essentials_Comp_Chem_Cramer.pdf) can be found in the [resources](resources) directory.
 
 ## Contributors
 
