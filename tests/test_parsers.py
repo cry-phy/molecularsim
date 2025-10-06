@@ -1,9 +1,8 @@
-# tests/test_parsers.py
 from pathlib import Path
 import numpy as np
 import pytest
 
-from utils.parsers import parse_z_matrix
+from molecsim.utils.parsers import parse_z_matrix
 
 TEST_DIR = Path(__file__).parent
 DATA_DIR = TEST_DIR / "data"

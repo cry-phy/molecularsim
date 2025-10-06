@@ -1,7 +1,5 @@
-""""""
-
-from system.data import FLOAT_DTYPE, FloatPrecision, SystemData
-from system.molecule import Molecule
+from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, SystemData
+from molecsim.system.molecule import Molecule
 import os
 import re
 import numpy as np

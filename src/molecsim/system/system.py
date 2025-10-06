@@ -1,7 +1,7 @@
 from __future__ import annotations
 from collections.abc import Iterable
-from system.data import SystemData
-from system.molecule import Molecule
+from molecsim.system.data import SystemData
+from molecsim.system.molecule import Molecule
 
 
 class SimSystem:

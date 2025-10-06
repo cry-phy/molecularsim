@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from system.data import StructureNode, SystemData
+from molecsim.system.data import StructureNode, SystemData
 
 
 class Molecule:
