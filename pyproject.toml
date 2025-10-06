@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "molecsim"
 version = "0.1.0"
-description = "Molecular Monte Carlo Simulatiun"
+description = "Molecular Monte Carlo Simulation"
 authors = [
   { name = "Christof Stein", email = "christof.stein@student.uibk.ac.at" },
-  { name = "Dima"},
-  { name = "Niklas Peter"},
+  { name = "Dima" },
+  { name = "Niklas Peter" }
 ]
 readme = "README.md"
 requires-python = ">=3.12"
@@ -28,3 +28,7 @@ where = ["src"]
 
 [tool.pyright]
 extraPaths = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
