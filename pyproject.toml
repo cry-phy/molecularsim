@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "molecsim"
+version = "0.1.0"
+description = "Molecular Monte Carlo Simulatiun"
+authors = [
+  { name = "Christof Stein", email = "christof.stein@student.uibk.ac.at" },
+  { name = "Dima"},
+  { name = "Niklas Peter"},
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=1.26",
+  "matplotlib>=3.9",
+  "numba>=0.60",
+  "tqdm>=4.66"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "black>=24.0", "mypy>=1.10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pyright]
+extraPaths = ["src"]
