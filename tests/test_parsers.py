@@ -1,0 +1,123 @@
+from pathlib import Path
+import numpy as np
+import pytest
+
+from molecsim.utils.parsers import parse_z_matrix
+
+TEST_DIR = Path(__file__).parent
+DATA_DIR = TEST_DIR / "data"
+
+
+def _get_symbols(mol) -> list[str]:
+    """Try common attribute names/paths for atomic symbols on Molecule."""
+    # direct attributes on Molecule
+    for attr in ("atoms", "symbols", "elements", "atomic_symbols"):
+        if hasattr(mol, attr):
+            vals = getattr(mol, attr)
+            return list(vals) if not isinstance(vals, list) else vals
+
+    # nested: Molecule.data / Molecule._data / Molecule._data_slices
+    for container_attr in ("data", "_data", "_data_slices"):
+        if hasattr(mol, container_attr):
+            container = getattr(mol, container_attr)
+            for attr in ("atoms", "symbols", "elements", "atomic_symbols", "_atoms"):
+                if hasattr(container, attr):
+                    vals = getattr(container, attr)
+                    return list(vals) if not isinstance(vals, list) else vals
+
+    raise AttributeError("Could not find atomic symbols on Molecule.")
+
+
+def _get_coords(mol) -> np.ndarray:
+    """Try common attribute names/paths for coordinates on Molecule."""
+    # direct attributes on Molecule
+    for attr in ("coords", "coordinates", "positions"):
+        if hasattr(mol, attr):
+            arr = getattr(mol, attr)
+            if isinstance(arr, np.ndarray):
+                return arr
+
+    # nested: Molecule.data / Molecule._data / Molecule._data_slices
+    for container_attr in ("data", "_data", "_data_slices"):
+        if hasattr(mol, container_attr):
+            container = getattr(mol, container_attr)
+            for attr in ("coords", "coordinates", "positions", "_positions"):
+                if hasattr(container, attr):
+                    arr = getattr(container, attr)
+                    if isinstance(arr, np.ndarray):
+                        return arr
+
+            # method-style accessors
+            for meth in (
+                "positions",
+                "coords",
+                "coordinates",
+                "get_positions",
+                "get_coords",
+            ):
+                if hasattr(container, meth):
+                    maybe = getattr(container, meth)
+                    arr = maybe() if callable(maybe) else maybe
+                    if isinstance(arr, np.ndarray):
+                        return arr
+
+    raise AttributeError("Could not find coordinates on Molecule.")
+
+
+def _angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
+    """Return angle ABC in degrees given 3× vectors (A,B,C)."""
+    v1 = a - b
+    v2 = c - b
+    v1 /= np.linalg.norm(v1)
+    v2 /= np.linalg.norm(v2)
+    cosang = float(np.clip(np.dot(v1, v2), -1.0, 1.0))
+    return float(np.degrees(np.arccos(cosang)))
+
+
+@pytest.mark.parametrize("filename", ["water_cartesian.com", "water_zmatrix.com"])
+def test_parse_water_shapes_and_types(filename: str):
+    path = DATA_DIR / filename
+    mol = parse_z_matrix(str(path))
+
+    coords = _get_coords(mol)
+    assert isinstance(coords, np.ndarray)
+    assert coords.shape == (3, 3)
+
+    symbols = _get_symbols(mol)
+    assert len(symbols) == 3
+    assert symbols.count("O") == 1
+    assert symbols.count("H") == 2
+
+
+@pytest.mark.parametrize("filename", ["water_cartesian.com", "water_zmatrix.com"])
+def test_parse_water_geometry_is_correct(filename: str):
+    path = DATA_DIR / filename
+    mol = parse_z_matrix(str(path))
+
+    coords = _get_coords(mol)
+    symbols = _get_symbols(mol)
+
+    idx_O = symbols.index("O")
+    idx_H = [i for i, s in enumerate(symbols) if s == "H"]
+    assert len(idx_H) == 2
+
+    O = coords[idx_O]
+    H1 = coords[idx_H[0]]
+    H2 = coords[idx_H[1]]
+
+    # O–H ~ 0.96 Å
+    d1 = np.linalg.norm(H1 - O)
+    d2 = np.linalg.norm(H2 - O)
+    assert np.isclose(d1, 0.96, atol=2e-2)
+    assert np.isclose(d2, 0.96, atol=2e-2)
+
+    # H–O–H ~ 104.5°
+    ang = _angle(H1, O, H2)
+    assert np.isclose(ang, 104.5, atol=0.5)
+
+
+def test_unsupported_extension_raises(tmp_path: Path):
+    bad = tmp_path / "foo.xyz"
+    bad.write_text("not a gaussian file\n")
+    with pytest.raises(ValueError):
+        _ = parse_z_matrix(str(bad))
