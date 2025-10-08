@@ -21,3 +21,16 @@ class RNG:
         """Random rotation matrix uniformly distributed over SO(3)."""
         u1, u2, u3 = self._rng.random(3)
         return rot_matrix_quaternions(u1, u2, u3)
+
+    def random_like(self, array: npt.NDArray, limit: float = 1) -> npt.NDArray:
+        """Generate random numbers of the same shape."""
+        return np.random.random(size=array.shape) * limit
+
+    def choose_indices(
+        self,
+        upper: int,
+        size: npt.NDArray | int,
+        replace: bool = False,
+    ) -> npt.NDArray:
+        """Generate choices of indices up to upper."""
+        return np.random.choice(upper, size=size, replace=replace)

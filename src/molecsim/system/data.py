@@ -1,8 +1,12 @@
 from __future__ import annotations
 from collections.abc import Iterable
 from typing import Final
+import typing
 import numpy as np
 import numpy.typing as npt
+
+if typing.TYPE_CHECKING:
+    from molecsim.system.molecule import Molecule
 
 FLOAT_DTYPE: Final = np.float64
 
@@ -89,9 +93,30 @@ class StructureNode:
 
 
 class SystemProperties:
-    """Wrapper for calculating and storing system properties."""
+    """Immutable wrapper for calculating and storing system properties."""
 
     def __init__(
         self,
+        molecules: dict[Molecule, int],
+        box: StructureArray,
+        temperature: float,
     ) -> None:
-        """Initialize data"""
+        """Initialize data."""
+        self._molecules: dict[Molecule, int] = molecules  # Count
+        self._box: StructureArray = box  # Angstrom
+        self._temperature: float = temperature  # Kelvin
+
+    @property
+    def box(self):
+        """The box property."""
+        return self._box
+
+    @property
+    def molecules(self):
+        """The molecules property."""
+        return self._molecules
+
+    @property
+    def temperature(self):
+        """The temperature property."""
+        return self._temperature
