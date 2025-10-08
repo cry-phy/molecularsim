@@ -28,7 +28,7 @@ class SystemData:
     ) -> SystemData:
         """Generate Data as a copy where ownership is with this instance."""
         instance = cls(len(charges))
-        instance._atoms = np.array(atoms)
+        instance._atoms = np.asarray(atoms, copy=True)
         instance._positions = positions.copy()
         instance._charges = charges.copy()
         return instance
@@ -48,6 +48,33 @@ class SystemData:
         instance._positions = positions.view()[start:end]
         instance._charges = charges.view()[start:end]
         return instance
+
+    def copy_from(self, data: SystemData) -> None:
+        """Copy data from another system into this location."""
+        np.copyto(self._atoms, data._atoms)
+        np.copyto(self._positions, data._positions)
+        np.copyto(self._charges, data._charges)
+
+    def deepcopy(self) -> SystemData:
+        """Generate copy."""
+        return SystemData.as_owner(
+            self._atoms.copy(),
+            self._positions.copy(),
+            self._charges.copy(),
+        )
+
+    @property
+    def positions(self):
+        """The positions property."""
+        return self._positions
+
+    @positions.setter
+    def positions(self, positions: StructureArray | StructureView) -> None:
+        np.copyto(self._positions, positions)
+
+    def __len__(self) -> int:
+        """Return number of atoms."""
+        return len(self._atoms)
 
 
 class StructureNode:
