@@ -86,3 +86,12 @@ class StructureNode:
         """Generate empty node."""
         self.molecular_index: int = molecular_index
         self.neighbors: list[StructureNode] = list(neighbors)
+
+
+class SystemProperties:
+    """Wrapper for calculating and storing system properties."""
+
+    def __init__(
+        self,
+    ) -> None:
+        """Initialize data"""

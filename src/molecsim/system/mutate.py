@@ -17,9 +17,7 @@ def mutate_rotate(molecule: Molecule, magnitude: float, rng: RNG) -> Molecule:
     """Mutate molecule by Rotation around Molecule.center."""
     new_data = molecule.data.deepcopy()
     rel_positions = new_data.positions - molecule.center
-    new_data.positions = (
-        rng.rotation_matrix(magnitude) @ rel_positions + molecule.center
-    )
+    new_data.positions = rel_positions @ rng.rotation_matrix() + molecule.center
     return Molecule(new_data)
 
 
