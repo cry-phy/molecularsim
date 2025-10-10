@@ -1,8 +1,12 @@
 from __future__ import annotations
 from collections.abc import Iterable
 from typing import Final
+import typing
 import numpy as np
 import numpy.typing as npt
+
+if typing.TYPE_CHECKING:
+    from molecsim.system.molecule import Molecule
 
 FLOAT_DTYPE: Final = np.float64
 
@@ -28,7 +32,7 @@ class SystemData:
     ) -> SystemData:
         """Generate Data as a copy where ownership is with this instance."""
         instance = cls(len(charges))
-        instance._atoms = np.array(atoms)
+        instance._atoms = np.asarray(atoms, copy=True)
         instance._positions = positions.copy()
         instance._charges = charges.copy()
         return instance
@@ -49,6 +53,33 @@ class SystemData:
         instance._charges = charges.view()[start:end]
         return instance
 
+    def copy_from(self, data: SystemData) -> None:
+        """Copy data from another system into this location."""
+        np.copyto(self._atoms, data._atoms)
+        np.copyto(self._positions, data._positions)
+        np.copyto(self._charges, data._charges)
+
+    def deepcopy(self) -> SystemData:
+        """Generate copy."""
+        return SystemData.as_owner(
+            self._atoms.copy(),
+            self._positions.copy(),
+            self._charges.copy(),
+        )
+
+    @property
+    def positions(self):
+        """The positions property."""
+        return self._positions
+
+    @positions.setter
+    def positions(self, positions: StructureArray | StructureView) -> None:
+        np.copyto(self._positions, positions)
+
+    def __len__(self) -> int:
+        """Return number of atoms."""
+        return len(self._atoms)
+
 
 class StructureNode:
     """Node in the Structure Tree."""
@@ -59,3 +90,33 @@ class StructureNode:
         """Generate empty node."""
         self.molecular_index: int = molecular_index
         self.neighbors: list[StructureNode] = list(neighbors)
+
+
+class SystemProperties:
+    """Immutable wrapper for calculating and storing system properties."""
+
+    def __init__(
+        self,
+        molecules: dict[Molecule, int],
+        box: StructureArray,
+        temperature: float,
+    ) -> None:
+        """Initialize data."""
+        self._molecules: dict[Molecule, int] = molecules  # Count
+        self._box: StructureArray = box  # Angstrom
+        self._temperature: float = temperature  # Kelvin
+
+    @property
+    def box(self):
+        """The box property."""
+        return self._box
+
+    @property
+    def molecules(self):
+        """The molecules property."""
+        return self._molecules
+
+    @property
+    def temperature(self):
+        """The temperature property."""
+        return self._temperature

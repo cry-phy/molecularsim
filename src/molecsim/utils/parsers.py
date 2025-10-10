@@ -6,6 +6,8 @@ import numpy as np
 import numpy.typing as npt
 from typing import Protocol
 
+from molecsim.utils.geometry import rot_matrix
+
 
 class Parser(Protocol):
     """Molecule Parser signature."""
@@ -90,23 +92,6 @@ def _parse_cartesian_block(
     fragment_arr = np.asarray(fragment, dtype=np.int32)
 
     return atoms, coords_arr, charges_arr, multiplicity_arr, fragment_arr
-
-
-def rot_matrix(bend_angle: float, dihedral_angle: float) -> npt.NDArray[FloatPrecision]:
-    """Generate a 3D rotation matrix from bend and dihedral angles (radians)."""
-    cos_bend = np.cos(bend_angle)
-    sin_bend = np.sin(bend_angle)
-    cos_dihedral = np.cos(dihedral_angle)
-    sin_dihedral = np.sin(dihedral_angle)
-
-    return np.array(
-        [
-            [cos_dihedral * cos_bend, -sin_dihedral, cos_dihedral * sin_bend],
-            [sin_dihedral * cos_bend, cos_dihedral, sin_dihedral * sin_bend],
-            [-sin_bend, 0.0, cos_bend],
-        ],
-        dtype=FLOAT_DTYPE,
-    )
 
 
 def _normalize(v: npt.NDArray[FloatPrecision]) -> npt.NDArray[np.float64]:
