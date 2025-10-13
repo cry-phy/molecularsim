@@ -1,3 +1,4 @@
+from __future__ import annotations
 from collections.abc import Iterable
 from molecsim.system.data import (
     StructureArray,
@@ -5,6 +6,7 @@ from molecsim.system.data import (
     StructureView,
     SystemData,
 )
+from copy import deepcopy
 
 
 class Molecule:
@@ -38,3 +40,18 @@ class Molecule:
     def data(self):
         """The data property."""
         return self._data_slices
+
+    def deepcopy(self) -> Molecule:
+        """Generate deepcopy."""
+        instance = Molecule(self.data.deepcopy(), deepcopy(self._structure_nodes))
+        instance._center = self.center.copy()
+        return instance
+
+    def move_to(self, data: SystemData) -> None:
+        """Move Molecule to SytemData as borrower."""
+        data.copy_from(self._data_slices)
+        self._data_slices = data
+
+    def size(self) -> int:
+        """Return number of atoms."""
+        return len(self._data_slices)

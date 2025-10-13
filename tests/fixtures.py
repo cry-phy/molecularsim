@@ -1,9 +1,13 @@
 import pytest
 import numpy as np
 from molecsim.system.molecule import Molecule
+<<<<<<< tests/fixtures.py
 from molecsim.system.data import SystemData, SystemProperties
 from molecsim.system.system import SimSystem
+=======
+>>>>>>> tests/fixtures.py
 from molecsim.utils.rng import RNG
+from molecsim.system.data import SystemData, SystemProperties
 
 
 @pytest.fixture
@@ -30,21 +34,47 @@ def test_rng() -> RNG:
 
 
 @pytest.fixture
-def simsys():
-    """Simples system for interaction."""
-    atoms = np.array(["A", "B"])
-    pos = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
-    charges = np.zeros(2)
-    data = SystemData.as_owner(atoms, pos, charges)
-    props = SystemProperties(
-        molecules={}, box=np.array([5.0, 5.0, 5.0]), temperature=300.0
+def second_proto(test_molecule: Molecule) -> Molecule:
+    """Independent copy shifted in x; ensures two distinct molecule types."""
+    data2 = SystemData.as_owner(
+        test_molecule.data._atoms,
+        test_molecule.data.positions + np.array([1.0, 0.0, 0.0]),
+        test_molecule.data._charges,
     )
-    return SimSystem(contigous_data=data, molecules=(), properties=props)
+    return Molecule(data2)
 
 
 @pytest.fixture
-def lin_sum_x():
-    def energy(data: SystemData, bias: float = 0.0) -> float:
-        return float(np.sum(data.positions[:, 0]) + bias)
+def props(test_molecule: Molecule, second_proto: Molecule) -> SystemProperties:
+    """Default SystemProperties fixture — periodic=True."""
+    box = np.array([10.0, 8.0, 6.0], dtype=float)
+    return SystemProperties(
+        molecules={test_molecule: 2, second_proto: 1},
+        box=box,
+        temperature=300.0,
+        periodic=True,
+    )
 
-    return energy
+
+@pytest.fixture
+def props_nonperiodic(
+    test_molecule: Molecule, second_proto: Molecule
+) -> SystemProperties:
+    """Non-periodic version for clamping tests."""
+    box = np.array([10.0, 8.0, 6.0], dtype=float)
+    return SystemProperties(
+        molecules={test_molecule: 2, second_proto: 1},
+        box=box,
+        temperature=300.0,
+        periodic=False,
+    )
+
+
+@pytest.fixture
+def flex_dummy_grid():
+    """Grid function with flexible signature returning zero-origin nodes."""
+
+    def _grid(n, box, *args, **kwargs):
+        return np.zeros((n, 3), dtype=float)
+
+    return _grid

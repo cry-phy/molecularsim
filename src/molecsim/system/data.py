@@ -30,6 +30,7 @@ class SystemData:
         )
         self._charges: StructureArray | StructureView = np.zeros(n, dtype=FLOAT_DTYPE)
         self._atoms: npt.NDArray[np.object_] = np.array([""] * n)
+        self._first_empty: int = 0
 
     @classmethod
     def as_owner(
@@ -42,21 +43,24 @@ class SystemData:
         instance._charges = charges.copy()
         return instance
 
-    @classmethod
     def as_borrow(
-        cls,
-        atoms: npt.NDArray[np.object_],
-        positions: StructureArray | StructureView,
-        charges: StructureArray | StructureView,
-        start: int = 0,
-        end: int = -1,
+        self,
+        start: int,
+        size: int,
     ) -> SystemData:
         """Generate Data as a copy where ownership is with this instance."""
-        instance = cls(len(charges))
-        instance._atoms = atoms.view()[start:end]
-        instance._positions = positions.view()[start:end]
-        instance._charges = charges.view()[start:end]
+        instance = SystemData(size)
+        instance._atoms = self._atoms.view()[start : start + size]
+        instance._positions = self._positions.view()[start : start + size]
+        instance._charges = self._charges.view()[start : start + size]
         return instance
+
+    def allocate_molecule(
+        self,
+        size: int,
+    ) -> SystemData:
+        """Generate Data as a copy where ownership is with this instance."""
+        return self.as_borrow(self.first_empty, size)
 
     def copy_from(self, data: SystemData) -> None:
         """Copy data from another system into this location."""
@@ -80,6 +84,11 @@ class SystemData:
     @positions.setter
     def positions(self, positions: StructureArray | StructureView) -> None:
         np.copyto(self._positions, positions)
+
+    @property
+    def first_empty(self):
+        """The first_empty property."""
+        return self._first_empty
 
     def __len__(self) -> int:
         """Return number of atoms."""
@@ -111,11 +120,13 @@ class SystemProperties:
         molecules: dict[Molecule, int],
         box: StructureArray,
         temperature: float,
+        periodic: bool = True,
     ) -> None:
         """Initialize data."""
         self._molecules: dict[Molecule, int] = molecules  # Count
         self._box: StructureArray = box  # Angstrom
         self._temperature: float = temperature  # Kelvin
+        self.periodic: bool = periodic
 
     @property
     def box(self):
@@ -123,7 +134,7 @@ class SystemProperties:
         return self._box
 
     @property
-    def molecules(self):
+    def molecules(self) -> dict[Molecule, int]:
         """The molecules property."""
         return self._molecules
 
