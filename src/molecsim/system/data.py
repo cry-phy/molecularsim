@@ -168,6 +168,10 @@ class PotCall(NamedTuple):
         yield self.name
         yield self.enabled
 
+    def label(self) -> str:
+        """Return name for debugging/human readability."""
+        return self.name or getattr(self.fn, "__name__", "<unnamed>")
+
 
 def make_potcall(
     fn: PotContributor,
@@ -227,3 +231,29 @@ class SystemForces:
             for c, a, k in zip(contributors, args, kwargs, strict=True)
         ]
         return SystemForces(items)
+
+    def with_enabled(self, *names: str) -> SystemForces:
+        """Enable set of ciontributors."""
+        names_set = set(names)
+
+        def _toggle(pc: PotCall) -> PotCall:
+            if pc.name in names_set:
+                return PotCall(pc.fn, pc.args, pc.kwargs, pc.name, True)
+            return pc
+
+        return SystemForces(tuple(_toggle(pc) for pc in self._items))
+
+    def with_disabled(self, *names: str) -> SystemForces:
+        """Disable set of contrributors."""
+        names_set = set(names)
+
+        def _toggle(pc: PotCall) -> PotCall:
+            if pc.name in names_set:
+                return PotCall(pc.fn, pc.args, pc.kwargs, pc.name, False)
+            return pc
+
+        return SystemForces(tuple(_toggle(pc) for pc in self._items))
+
+    def names(self) -> tuple[str | None, ...]:
+        """List all contributors."""
+        return tuple(pc.name for pc in self._items)
