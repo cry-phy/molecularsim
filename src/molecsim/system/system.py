@@ -2,6 +2,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from molecsim.system.data import SystemData, SystemProperties
 from molecsim.system.molecule import Molecule
+from molecsim.utils.geometry import simple_cubic
 
 
 class SimSystem:
@@ -23,9 +24,14 @@ class SimSystem:
             )
         self.properties = properties
 
+    @property
+    def data(self):
+        """The data property."""
+        return self._contigous_data
+
 
 def randomized_system(
     properties: SystemProperties, grid_function=simple_cubic
 ) -> SimSystem:
     """Generate a system from properties with randomized initial data."""
-    total_molecules = sum()
+    ...
