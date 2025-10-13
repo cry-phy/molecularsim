@@ -7,6 +7,8 @@ from molecsim.system.data import FloatPrecision, FLOAT_DTYPE, StructureArray
 if typing.TYPE_CHECKING:
     from molecsim.utils.rng import RNG
 
+BOUND_EPS = 1e-8
+
 
 def rot_matrix(bend_angle: float, dihedral_angle: float) -> npt.NDArray[FloatPrecision]:
     """Generate a 3D rotation matrix from bend and dihedral angles (radians)."""
@@ -57,6 +59,31 @@ def wrap_periodic(x, a, b):
     a = np.asarray(a)
     b = np.asarray(b)
     return a + np.mod(x - a, b - a)
+
+
+def keep_molecule_in_box(
+    positions: npt.NDArray[np.floating],
+    box: npt.NDArray[np.floating],
+    periodic: bool,
+    *,
+    eps: float = 1e-9,
+) -> npt.NDArray[np.floating]:
+    """Return positions moved into [0, box) without breaking rigidity."""
+    positions = np.asarray(positions)
+    box = np.asarray(box)
+    if periodic:
+        return np.mod(positions, box)
+    mins = positions.min(axis=0)
+    maxs = positions.max(axis=0)
+    spans = maxs - mins
+    if np.any(spans > box + eps):
+        raise ValueError(
+            "Molecule extent exceeds non-periodic box along at least one axis."
+        )
+    shift = -np.minimum(mins, 0.0)
+    overflow = np.maximum((maxs + shift) - box, 0.0)
+    shift -= overflow + eps
+    return positions + shift
 
 
 def simple_cubic(

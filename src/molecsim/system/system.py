@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from molecsim.system.data import SystemData, SystemProperties
 from molecsim.system.molecule import Molecule
 from molecsim.system.mutate import mutate_rotate, mutate_translate
-from molecsim.utils.geometry import fuzzyfy, simple_cubic
+from molecsim.utils.geometry import fuzzyfy, keep_molecule_in_box, simple_cubic
 from molecsim.utils.rng import RNG
 
 
@@ -24,13 +24,28 @@ class SimSystem:
             raise ValueError(
                 "Dimension of bounding box must match dimension of position."
             )
-        self.properties = properties
+        self._properties = properties
+
+    @property
+    def molecules(self):
+        """The molecules property."""
+        return self._molecules
+
+    @property
+    def data(self):
+        """The data property."""
+        return self._contigous_data
+
+    @property
+    def properties(self):
+        """The properties property."""
+        return self._properties
 
 
 def randomized_system(
     properties: SystemProperties, rng: RNG, grid_function=simple_cubic
 ) -> SimSystem:
-    """Generate a system from properties with randomized initial data."""
+    """Generate random System with grid function arrangement as basis."""
     total_molecules = sum(properties.molecules.values())
     total_atoms = sum(
         molecule.size() * number for molecule, number in properties.molecules.items()
@@ -46,8 +61,11 @@ def randomized_system(
     molecules = []
     for molec_sample, fuzzy_node in zip(molecule_types, fuzzy_nodes, strict=True):
         molecule_slice = data.allocate_molecule(molec_sample.size())
-        rotated_molecule = mutate_rotate(molec_sample, 1, rng)
-        rotated_molecule.data.positions += fuzzy_node
-        rotated_molecule.move_to(molecule_slice)
-        molecules.append(rotated_molecule)
+        rotated = mutate_rotate(molec_sample, 1, rng)
+        rotated.data.positions += fuzzy_node
+        rotated.data.positions[:] = keep_molecule_in_box(
+            rotated.data.positions, properties.box, properties.periodic
+        )
+        rotated.move_to(molecule_slice)
+        molecules.append(rotated)
     return SimSystem(data, molecules, properties)
