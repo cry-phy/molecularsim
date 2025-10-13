@@ -51,6 +51,14 @@ def rot_matrix_quaternions(
     return matrix
 
 
+def wrap_periodic(x, a, b):
+    """Wrap N-D positions x into the periodic interval [a, b)."""
+    x = np.asarray(x)
+    a = np.asarray(a)
+    b = np.asarray(b)
+    return a + np.mod(x - a, b - a)
+
+
 def simple_cubic(
     number_placements: int,
     box: StructureArray,
@@ -92,4 +100,5 @@ def fuzzyfy(
     position_volume = np.prod(box) / len(positions)
     position_radius = position_volume ** (1 / 3)
     fuzz = rng.random_like(positions, limit=float(strength * position_radius))
-    return fuzz + positions
+    proposal = fuzz + positions
+    return wrap_periodic(proposal, 0, box)
