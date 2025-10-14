@@ -10,6 +10,14 @@ Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](re
 
 Niklas Peter
 
-Dima
+Dmytro Lazykov
 
 [Christof Stein](mailto:christof.stein@student.uibk.ac.at).
+
+## Development
+
+For development the project is installable in editable mode via pip, which already install all needed requirements:
+```bash
+pip install -e .
+```
+
