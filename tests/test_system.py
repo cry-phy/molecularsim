@@ -11,10 +11,10 @@ from tests.fixtures import props, second_proto, test_molecule, test_rng
 
 
 def pairwise_dists_mic(
-    P: np.ndarray, box: np.ndarray | None, periodic: bool
+    positions: np.ndarray, box: np.ndarray | None, periodic: bool
 ) -> np.ndarray:
     """Pairwise distances with minimum-image convention if periodic, else Euclidean."""
-    diff = P[:, None, :] - P[None, :, :]
+    diff = positions[:, None, :] - positions[None, :, :]
     if periodic:
         # shift by nearest periodic image
         box = np.asarray(box, dtype=float)
@@ -42,12 +42,13 @@ def _flex_dummy_grid(n, box, *args, **kwargs):
     return np.zeros((n, 3), dtype=float)
 
 
-def pairwise_dists(P: np.ndarray):
-    diff = P[:, None, :] - P[None, :, :]
+def pairwise_dists(positions: np.ndarray):
+    diff = positions[:, None, :] - positions[None, :, :]
     return np.linalg.norm(diff, axis=-1)
 
 
 def test_randomized_system_counts_and_views(props, test_rng):
+    """Test that the randomized system has the correct counts and memory views."""
     sys = randomized_system(props, test_rng, grid_function=_flex_dummy_grid)
     assert isinstance(sys, SimSystem)
     total_mols = sum(props.molecules.values())
@@ -58,6 +59,7 @@ def test_randomized_system_counts_and_views(props, test_rng):
 
 
 def test_nonperiodic_is_rigidly_clamped_inside_box():
+    """Test that non-periodic systems are rigidly clamped inside the box."""
     mol = _proto()
     box = np.array([2.0, 1.5, 1.0], dtype=float)
     props = SystemProperties(
@@ -70,8 +72,8 @@ def test_nonperiodic_is_rigidly_clamped_inside_box():
     assert np.all(pos <= box + BOUND_EPS)
     from numpy.linalg import norm
 
-    def dmat(P):
-        return norm(P[:, None, :] - P[None, :, :], axis=-1)
+    def dmat(positions):
+        return norm(positions[:, None, :] - positions[None, :, :], axis=-1)
 
     np.testing.assert_allclose(
         dmat(pos), dmat(mol.data.positions), rtol=1e-12, atol=1e-12
@@ -79,6 +81,7 @@ def test_nonperiodic_is_rigidly_clamped_inside_box():
 
 
 def test_periodic_wraps_instead_of_error_or_clamp():
+    """Test that periodic systems wrap molecules instead of erroring or clamping."""
     mol = _proto()
     box = np.array([2.0, 1.5, 1.0], dtype=float)
     props = SystemProperties(
@@ -92,6 +95,7 @@ def test_periodic_wraps_instead_of_error_or_clamp():
 
 
 def test_nonperiodic_raises_if_molecule_larger_than_box():
+    """Test that non-periodic systems raise an error if a molecule is larger than the box."""
     # Make the prototype wider than the box along x
     mol = _proto()
     too_small_box = np.array([0.5, 1.5, 1.0], dtype=float)
@@ -104,6 +108,7 @@ def test_nonperiodic_raises_if_molecule_larger_than_box():
 
 
 def test_randomized_system_rigid_body_invariance(props, test_rng):
+    """Test that the randomized system preserves rigid body invariance."""
     sys = randomized_system(props, test_rng, grid_function=_flex_dummy_grid)
 
     periodic = getattr(props, "periodic", True)
@@ -122,6 +127,7 @@ def test_randomized_system_rigid_body_invariance(props, test_rng):
 
 
 def test_randomized_system_custom_grid_is_used(props, test_rng):
+    """Test that a custom grid function is used by the randomized system."""
     calls = {}
 
     def recorder(n, box, *args, **kwargs):

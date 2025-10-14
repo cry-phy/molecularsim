@@ -31,6 +31,7 @@ class SystemData:
         self._charges: StructureArray | StructureView = np.zeros(n, dtype=FLOAT_DTYPE)
         self._atoms: npt.NDArray[np.object_] = np.array([""] * n)
         self._first_empty: int = 0
+        self._start_index: int = 0
 
     @classmethod
     def as_owner(
@@ -53,6 +54,7 @@ class SystemData:
         instance._atoms = self._atoms.view()[start : start + size]
         instance._positions = self._positions.view()[start : start + size]
         instance._charges = self._charges.view()[start : start + size]
+        instance._start_index = start
         return instance
 
     def allocate_molecule(
@@ -86,6 +88,15 @@ class SystemData:
         np.copyto(self._positions, positions)
 
     @property
+    def charges(self):
+        """The charges property."""
+        return self._charges
+
+    @charges.setter
+    def charges(self, value):
+        self._charges = value
+
+    @property
     def first_empty(self):
         """The first_empty property."""
         return self._first_empty
@@ -93,6 +104,10 @@ class SystemData:
     def __len__(self) -> int:
         """Return number of atoms."""
         return len(self._atoms)
+
+    def data_interval(self) -> tuple[int, int]:
+        """Return start and end index of data in owner of data."""
+        return self._start_index, self._start_index + self.__len__()
 
 
 class StructureNode:

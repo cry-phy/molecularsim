@@ -10,9 +10,10 @@ from tests.fixtures import simsys, lin_sum_x
 
 
 def test_breakdown_matches_sum_and_preserves_order(simsys, lin_sum_x):
-    pc1 = make_potcall(lin_sum_x, 0.0, name="E1")
-    pc2 = make_potcall(lin_sum_x, 2.0, name="E2")
-    forces = SystemForces([pc1, pc2])
+    """Test that potential_breakdown matches the sum of full_potential and preserves order."""
+    pot_call_1 = make_potcall(lin_sum_x, 0.0, name="E1")
+    pot_call_2 = make_potcall(lin_sum_x, 2.0, name="E2")
+    forces = SystemForces([pot_call_1, pot_call_2])
 
     parts = potential_breakdown(simsys, forces)
     names, vals = zip(*parts)
@@ -21,9 +22,10 @@ def test_breakdown_matches_sum_and_preserves_order(simsys, lin_sum_x):
 
 
 def test_breakdown_include_disabled_flag(simsys, lin_sum_x):
-    pc1 = make_potcall(lin_sum_x, 0.0, name="on", enabled=True)
-    pc2 = make_potcall(lin_sum_x, 5.0, name="off", enabled=False)
-    forces = SystemForces([pc1, pc2])
+    """Test the include_disabled flag in potential_breakdown."""
+    pot_call_1 = make_potcall(lin_sum_x, 0.0, name="on", enabled=True)
+    pot_call_2 = make_potcall(lin_sum_x, 5.0, name="off", enabled=False)
+    forces = SystemForces([pot_call_1, pot_call_2])
 
     # Default: disabled skipped
     parts_def = potential_breakdown(simsys, forces)

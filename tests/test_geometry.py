@@ -12,10 +12,11 @@ RTOL = 1e-12
 ATOL = 1e-12
 
 
-def is_rotation_matrix(R: np.ndarray, rtol=RTOL, atol=ATOL):
-    I = np.eye(3, dtype=R.dtype)
-    return np.allclose(R.T @ R, I, rtol=rtol, atol=atol) and np.allclose(
-        np.linalg.det(R), 1.0, rtol=rtol, atol=1e-10
+def is_rotation_matrix(rotation_matrix: np.ndarray, rtol=RTOL, atol=ATOL):
+    """Check if a matrix is a valid rotation matrix."""
+    identity_matrix = np.eye(3, dtype=rotation_matrix.dtype)
+    return np.allclose(rotation_matrix.T @ rotation_matrix, identity_matrix, rtol=rtol, atol=atol) and np.allclose(
+        np.linalg.det(rotation_matrix), 1.0, rtol=rtol, atol=1e-10
     )
 
 
@@ -23,10 +24,11 @@ def is_rotation_matrix(R: np.ndarray, rtol=RTOL, atol=ATOL):
 
 
 def test_rot_matrix_identity():
-    R = rot_matrix(0.0, 0.0)
-    assert R.shape == (3, 3)
-    assert R.dtype == FLOAT_DTYPE
-    assert np.allclose(R, np.eye(3, dtype=FLOAT_DTYPE), rtol=RTOL, atol=ATOL)
+    """Test that rot_matrix with zero angles returns the identity matrix."""
+    rotation_matrix = rot_matrix(0.0, 0.0)
+    assert rotation_matrix.shape == (3, 3)
+    assert rotation_matrix.dtype == FLOAT_DTYPE
+    assert np.allclose(rotation_matrix, np.eye(3, dtype=FLOAT_DTYPE), rtol=RTOL, atol=ATOL)
 
 
 @pytest.mark.parametrize(
@@ -41,14 +43,16 @@ def test_rot_matrix_identity():
     ],
 )
 def test_rot_matrix_is_proper_rotation(bend, dihedral):
-    R = rot_matrix(bend, dihedral)
-    assert is_rotation_matrix(R)
+    """Test that rot_matrix returns a proper rotation matrix for various angles."""
+    rotation_matrix = rot_matrix(bend, dihedral)
+    assert is_rotation_matrix(rotation_matrix)
 
 
 def test_rot_matrix_known_case():
+    """Test rot_matrix against a known rotation matrix."""
     bend = np.pi / 3
-    R = rot_matrix(bend, 0.0)
-    Ry = np.array(
+    rotation_matrix = rot_matrix(bend, 0.0)
+    rotation_matrix_y = np.array(
         [
             [np.cos(bend), 0.0, np.sin(bend)],
             [0.0, 1.0, 0.0],
@@ -56,7 +60,7 @@ def test_rot_matrix_known_case():
         ],
         dtype=FLOAT_DTYPE,
     )
-    assert np.allclose(R, Ry, rtol=RTOL, atol=ATOL)
+    assert np.allclose(rotation_matrix, rotation_matrix_y, rtol=RTOL, atol=ATOL)
 
 
 # ---------- rot_matriquaternions (u1,u2,u3) ----------
@@ -66,6 +70,7 @@ def test_rot_matrix_known_case():
 @pytest.mark.parametrize("u2", [0.0, 0.37])
 @pytest.mark.parametrize("u3", [0.0, 0.73])
 def test_rot_matrix_quaternions_is_proper_rotation(u1, u2, u3):
+    """Test that rot_matrix_quaternions returns a proper rotation matrix."""
     matrix = rot_matrix_quaternions(u1, u2, u3)
     assert matrix.shape == (3, 3)
     assert np.issubdtype(matrix.dtype, np.floating)
@@ -73,6 +78,7 @@ def test_rot_matrix_quaternions_is_proper_rotation(u1, u2, u3):
 
 
 def test_quaternion_rotation_preserves_norms():
+    """Test that quaternion rotations preserve vector norms."""
     rng = np.random.default_rng(1234)
     for _ in range(10):
         u1, u2, u3 = rng.random(3)
@@ -85,6 +91,7 @@ def test_quaternion_rotation_preserves_norms():
 
 
 def test_quaternion_edge_case_u1_zero_is_pi_rotation():
+    """Test that rot_matrix_quaternions with u1=0 results in a pi rotation."""
     u1, u2, u3 = 0.0, 0.25, 0.5
     matrix = rot_matrix_quaternions(u1, u2, u3)
     tr = np.trace(matrix)

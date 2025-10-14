@@ -1,13 +1,9 @@
 import pytest
 import numpy as np
 from molecsim.system.molecule import Molecule
-<<<<<<< tests/fixtures.py
-from molecsim.system.data import SystemData, SystemProperties
-from molecsim.system.system import SimSystem
-=======
->>>>>>> tests/fixtures.py
 from molecsim.utils.rng import RNG
 from molecsim.system.data import SystemData, SystemProperties
+from molecsim.system.system import SimSystem
 
 
 @pytest.fixture
@@ -78,3 +74,19 @@ def flex_dummy_grid():
         return np.zeros((n, 3), dtype=float)
 
     return _grid
+
+@pytest.fixture
+def lin_sum_x():
+    def energy(data: SystemData, bias: float = 0.0) -> float:
+        return float(np.sum(data.positions[:, 0]) + bias)
+    return energy
+
+@pytest.fixture
+def simsys():
+    """Simples system for interaction."""
+    atoms = np.array(["A", "B"])
+    pos = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    charges = np.zeros(2)
+    data = SystemData.as_owner(atoms, pos, charges)
+    props = SystemProperties(molecules={}, box=np.array([5.0, 5.0, 5.0]), temperature=300.0)
+    return SimSystem(contigous_data=data, molecules=(), properties=props)

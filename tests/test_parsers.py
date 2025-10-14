@@ -76,6 +76,7 @@ def _angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
 
 @pytest.mark.parametrize("filename", ["water_cartesian.com", "water_zmatrix.com"])
 def test_parse_water_shapes_and_types(filename: str):
+    """Test that parsing water files results in correct shapes and types."""
     path = DATA_DIR / filename
     mol = parse_z_matrix(str(path))
 
@@ -91,6 +92,7 @@ def test_parse_water_shapes_and_types(filename: str):
 
 @pytest.mark.parametrize("filename", ["water_cartesian.com", "water_zmatrix.com"])
 def test_parse_water_geometry_is_correct(filename: str):
+    """Test that parsing water files results in correct geometry."""
     path = DATA_DIR / filename
     mol = parse_z_matrix(str(path))
 
@@ -101,22 +103,23 @@ def test_parse_water_geometry_is_correct(filename: str):
     idx_H = [i for i, s in enumerate(symbols) if s == "H"]
     assert len(idx_H) == 2
 
-    O = coords[idx_O]
-    H1 = coords[idx_H[0]]
-    H2 = coords[idx_H[1]]
+    o_coord = coords[idx_O]
+    h1_coord = coords[idx_H[0]]
+    h2_coord = coords[idx_H[1]]
 
     # O–H ~ 0.96 Å
-    d1 = np.linalg.norm(H1 - O)
-    d2 = np.linalg.norm(H2 - O)
+    d1 = np.linalg.norm(h1_coord - o_coord)
+    d2 = np.linalg.norm(h2_coord - o_coord)
     assert np.isclose(d1, 0.96, atol=2e-2)
     assert np.isclose(d2, 0.96, atol=2e-2)
 
     # H–O–H ~ 104.5°
-    ang = _angle(H1, O, H2)
+    ang = _angle(h1_coord, o_coord, h2_coord)
     assert np.isclose(ang, 104.5, atol=0.5)
 
 
 def test_unsupported_extension_raises(tmp_path: Path):
+    """Test that an unsupported file extension raises a ValueError."""
     bad = tmp_path / "foo.xyz"
     bad.write_text("not a gaussian file\n")
     with pytest.raises(ValueError):
