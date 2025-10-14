@@ -1,6 +1,11 @@
 import pytest
 import numpy as np
 from molecsim.system.molecule import Molecule
+<<<<<<< tests/fixtures.py
+from molecsim.system.data import SystemData, SystemProperties
+from molecsim.system.system import SimSystem
+=======
+>>>>>>> tests/fixtures.py
 from molecsim.utils.rng import RNG
 from molecsim.system.data import SystemData, SystemProperties
 
