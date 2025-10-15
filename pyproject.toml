@@ -25,6 +25,7 @@ dev = ["pytest>=8.0", "black>=24.0", "mypy>=1.10"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["src/apps"]
 
 [tool.pyright]
 extraPaths = ["src"]

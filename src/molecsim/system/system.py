@@ -3,7 +3,8 @@ from collections.abc import Iterable
 from molecsim.system.data import SystemData, SystemProperties
 from molecsim.system.molecule import Molecule
 from molecsim.system.mutate import mutate_rotate
-from molecsim.utils.geometry import fuzzyfy, keep_molecule_in_box, simple_cubic
+from molecsim.utils.geometry import fuzzyfy, keep_molecule_in_box
+from molecsim.utils.grids import simple_cubic
 from molecsim.utils.rng import RNG
 
 
@@ -40,11 +41,6 @@ class SimSystem:
     def properties(self):
         """The properties property."""
         return self._properties
-
-    @property
-    def data(self):
-        """The data property."""
-        return self._contigous_data
 
 
 def randomized_system(
