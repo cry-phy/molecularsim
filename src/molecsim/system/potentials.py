@@ -27,6 +27,19 @@ def intra_interaction_mask(
     return subset_mask
 
 
+def distance_squares(
+    large_data: SystemData,
+    small_data: SystemData,
+    box: npt.NDArray[FloatPrecision],
+    periodic: bool,
+) -> npt.NDArray[FloatPrecision]:
+    """Calculate MxN distance pair matrix with or without MIC based on periodicity."""
+    dist_vecs = large_data.positions[:, None, :] - small_data.positions[None, :, :]
+    if periodic:  # needs MIC
+        dist_vecs -= box * np.round(dist_vecs / box)
+    return np.einsum("mni->mn", dist_vecs**2)
+
+
 def harmonic_well(
     data: SystemData,
     curvature: npt.NDArray[FloatPrecision] = np.full(1, 1),
@@ -50,6 +63,8 @@ def harmonic_well_gpu(
 def coulomb(
     data: SystemData,
     molecule_data: SystemData,
+    box: npt.NDArray[FloatPrecision],
+    periodic: bool,
     coeff: float = 1,
 ) -> float:
     """Calculate coulomb interaction between molecule_data atoms and data atoms."""
@@ -63,8 +78,8 @@ def coulomb(
     # since molecule is small in comparison to data
 
     # Calculate interactions to atoms outside the molecule only
-    dist_vecs = data.positions[:, None, :] - molecule_data.positions[None, :, :]
-    distances = np.sqrt(np.einsum("mni->mn", dist_vecs**2))
+    r2 = distance_squares(data, molecule_data, box, periodic=periodic)
+    distances = np.sqrt(r2)
     mask = extra_interaction_mask(data, molecule_data)
     distances[~mask] = np.inf
     charge_prods = data.charges[:, None] * molecule_data.charges[None, :]
@@ -72,10 +87,8 @@ def coulomb(
     extra_part = np.sum(extra_potentials)
 
     # Calculate interactions within the molecule only
-    intra_dist_vecs = (
-        molecule_data.positions[:, None, :] - molecule_data.positions[None, :, :]
-    )
-    intra_distances = np.sqrt(np.einsum("mni->mn", intra_dist_vecs**2))
+    intra_r2 = distance_squares(molecule_data, molecule_data, box, periodic=periodic)
+    intra_distances = np.sqrt(intra_r2)
     intra_mask = intra_interaction_mask(molecule_data)
     intra_distances[~intra_mask] = np.inf
     intra_charge_prods = molecule_data.charges[None, :] * molecule_data.charges[:, None]
@@ -88,6 +101,8 @@ def coulomb(
 def lennard_jones(
     data: SystemData,
     molecule_data: SystemData,
+    box: npt.NDArray[FloatPrecision],
+    periodic: bool,
     A: float = 1,
     B: float = 1,
 ) -> float:
@@ -105,8 +120,7 @@ def lennard_jones(
     # since molecule is small in comparison to data
 
     # Calculate interactions to atoms outside the molecule only
-    dist_vecs = data.positions[:, None, :] - molecule_data.positions[None, :, :]
-    r2 = np.einsum("mni->mn", dist_vecs**2)
+    r2 = distance_squares(data, molecule_data, box, periodic=periodic)
     mask = extra_interaction_mask(data, molecule_data)
     r2[~mask] = np.inf
     r6 = r2**3
@@ -115,10 +129,7 @@ def lennard_jones(
     extra_part = np.sum(potentials)
 
     # Calculate interactions within the molecule only
-    intra_dist_vecs = (
-        molecule_data.positions[:, None, :] - molecule_data.positions[None, :, :]
-    )
-    intra_r2 = np.einsum("mni->mn", intra_dist_vecs**2)
+    intra_r2 = distance_squares(molecule_data, molecule_data, box, periodic=periodic)
     intra_mask = intra_interaction_mask(molecule_data)
     intra_r2[~intra_mask] = np.inf
     intra_r6 = intra_r2**3
