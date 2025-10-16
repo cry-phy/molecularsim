@@ -1,8 +1,13 @@
-"""Calculate interaction forces for system of n molecules loaded from data."""
+"""Calculate interaction forces for system of n molecules loaded from data.
+
+Usage example (called from project root):
+
+python src/apps/calculate_between.py -f tests/data/water_zmatrix.com -n 2 -t 10 -b 10,10,10
+"""
 
 from molecsim.system.calculations import full_potential, potential_breakdown
 from molecsim.system.data import make_potcall, SystemForces, SystemProperties
-from molecsim.system.potentials import coulomb, harmonic_well, lennard_jones
+from molecsim.system.potentials import coulomb, lennard_jones
 from molecsim.system.system import randomized_system
 from molecsim.utils.parsers import parse_com
 from molecsim.utils.rng import RNG
