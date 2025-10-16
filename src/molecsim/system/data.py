@@ -62,7 +62,9 @@ class SystemData:
         size: int,
     ) -> SystemData:
         """Generate Data as a copy where ownership is with this instance."""
-        return self.as_borrow(self.first_empty, size)
+        new_data = self.as_borrow(self.first_empty, size)
+        self._first_empty += size
+        return new_data
 
     def copy_from(self, data: SystemData) -> None:
         """Copy data from another system into this location."""
@@ -211,6 +213,7 @@ def make_potcall(
         types.MappingProxyType(dict(kwargs)) if kwargs else types.MappingProxyType({})
     )
     validate_contributor(fn, args, kwargs)
+    name = fn.__name__ if not name else name
     return PotCall(
         fn=fn, args=tuple(args), kwargs=frozen_kwargs, name=name, enabled=enabled
     )

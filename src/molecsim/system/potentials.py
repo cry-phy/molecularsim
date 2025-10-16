@@ -16,7 +16,6 @@ def extra_interaction_mask(
     mask = np.ones(shape=(len(large_data), len(small_data)), dtype=bool)
     sub_start, sub_end = small_data.data_interval()
     mask[sub_start:sub_end, :] = False
-    print("Extra interaction mask:", mask)
     return mask
 
 
@@ -25,14 +24,13 @@ def intra_interaction_mask(
 ) -> npt.NDArray[np.bool_]:
     """Generate mask for all pairs within small_data only."""
     subset_mask = np.tril(np.ones((len(small_data), len(small_data)), dtype=bool), k=-1)
-    print("Intra interaction mask:", subset_mask)
     return subset_mask
 
 
 def harmonic_well(
     data: SystemData,
-    curvature: npt.NDArray[FloatPrecision],
-    center: npt.NDArray[FloatPrecision],
+    curvature: npt.NDArray[FloatPrecision] = np.full(1, 1),
+    center: npt.NDArray[FloatPrecision] = np.full(1, 0),
 ) -> float:
     """Quadratic well: sum_i ( (r_i - c)^2 * k ) over all atoms."""
     rel = data.positions - center.astype(FLOAT_DTYPE, copy=False)
@@ -129,4 +127,3 @@ def lennard_jones(
     intra_part = np.sum(intra_potentials)
 
     return extra_part + intra_part
-
