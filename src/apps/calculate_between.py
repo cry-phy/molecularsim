@@ -80,8 +80,8 @@ if __name__ == "__main__":
 
     sim = randomized_system(props, rng)
 
-    coulomb_cont = make_potcall(coulomb, sim.data)
-    lj_cont = make_potcall(lennard_jones, sim.data)
+    coulomb_cont = make_potcall(coulomb, sim.data, props.box, False)
+    lj_cont = make_potcall(lennard_jones, sim.data, props.box, False)
 
     forces = SystemForces([coulomb_cont, lj_cont])
 
