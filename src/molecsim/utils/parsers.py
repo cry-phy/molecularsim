@@ -6,7 +6,8 @@ import numpy as np
 import numpy.typing as npt
 from typing import Protocol
 
-from molecsim.utils.geometry import rot_matrix
+import argparse
+from pathlib import Path
 
 
 class Parser(Protocol):
@@ -286,3 +287,49 @@ EXTENSION_MAPPING: dict[str, Parser] = {
     #    ".log": parse_log,
     #    ".fchk": parse_fchk,
 }
+
+
+def parse_args(argv=None) -> argparse.Namespace:
+    """Parse command-line arguments for file list and read counts."""
+    parser = argparse.ArgumentParser(
+        prog="molecsim-app",
+        description="Specify molecules to load and number of reads for each.",
+    )
+    parser.add_argument(
+        "-f",
+        "--files",
+        required=True,
+        help="Comma-separated list of molecule files to load (e.g. data1.xyz,data2.xyz)",
+    )
+    parser.add_argument(
+        "-n",
+        "--numbers",
+        required=True,
+        help="Comma-separated list of molecule counts corresponding to each file (e.g. 3,5)",
+    )
+    parser.add_argument(
+        "-t",
+        "--temperature",
+        required=True,
+        help="System Temperature in Kelvin",
+        type=float,
+    )
+    parser.add_argument(
+        "-b",
+        "--box",
+        required=True,
+        help="Box size in three dimension in Angstrom (e.g. 10,10,10)",
+    )
+    args = parser.parse_args(argv)
+    args.files = [Path(f.strip()) for f in args.files.split(",") if f.strip()]
+    args.numbers = [int(n.strip()) for n in args.numbers.split(",") if n.strip()]
+    args.box = [int(n.strip()) for n in args.box.split(",") if n.strip()]
+    if len(args.files) != len(args.numbers):
+        parser.error(
+            f"number of files ({len(args.files)}) must match number of counts ({len(args.numbers)})"
+        )
+    missing = [f for f in args.files if not f.is_file()]
+    if missing:
+        parser.error(f"file(s) not found: {', '.join(str(f) for f in missing)}")
+
+    return args

@@ -1,27 +1,26 @@
 import numpy as np
 import pytest
 
-from molecsim.system.data import SystemData
+from molecsim.system.data import SystemData, SystemProperties
 from molecsim.system.potentials import coulomb, lennard_jones
+from tests.fixtures import mock_props
 
 
-def test_coulomb_single_molecule():
+def test_coulomb_single_molecule(mock_props):
     """Test Coulomb potential for a single molecule."""
     # Define a simple molecule with two atoms
     positions = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
     charges = np.array([1.0, -1.0], dtype=np.float64)
     data = SystemData.as_owner(atoms=["A", "B"], positions=positions, charges=charges)
-    # pseudo box
-    box = np.zeros(3)
 
     # Calculate Coulomb potential
-    potential = coulomb(data, data, box=box, periodic=False)
+    potential = coulomb(data, data, mock_props)
     # Expected potential: k * q1 * q2 / r, where k=1, q1=1, q2=-1, r=1
     expected_potential = -1.0
     assert np.isclose(potential, expected_potential)
 
 
-def test_coulomb_two_molecules():
+def test_coulomb_two_molecules(mock_props):
     """Test Coulomb potential for two interacting molecules."""
     # Define two molecules
     positions1 = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
@@ -44,27 +43,25 @@ def test_coulomb_two_molecules():
         atoms=combined_atoms, positions=combined_positions, charges=combined_charges
     )
 
-    box = np.zeros(3)
-
     # Calculate Coulomb potential between the two molecules
-    potential = coulomb(combined_data, data1, box=box, periodic=False)
+    potential = coulomb(combined_data, data1, mock_props)
 
     # Calculate expected potential
     # Distances:
     # Intramolecular (within data1): A-B
     # Intermolecular (between data1 and data2): A-C, A-D, B-C, B-D
-    def coulomb_interaction(q1, q2, r):
-        return q1 * q2 / r
+    def coulomb_interaction(q1, q2, r, coeff):
+        return coeff * q1 * q2 / r
 
     # Intramolecular (A-B)
-    intra_potential = coulomb_interaction(1.0, -1.0, 1.0)
+    intra_potential = coulomb_interaction(1.0, -1.0, 1.0, mock_props.coulomb_coeff)
 
     # Intermolecular (A-C, A-D, B-C, B-D)
     inter_potential = (
-        coulomb_interaction(1.0, -1.0, 3.0)  # A-C
-        + coulomb_interaction(1.0, 1.0, 4.0)  # A-D
-        + coulomb_interaction(-1.0, -1.0, 2.0)  # B-C
-        + coulomb_interaction(-1.0, 1.0, 3.0)  # B-D
+        coulomb_interaction(1.0, -1.0, 3.0, mock_props.coulomb_coeff)  # A-C
+        + coulomb_interaction(1.0, 1.0, 4.0, mock_props.coulomb_coeff)  # A-D
+        + coulomb_interaction(-1.0, -1.0, 2.0, mock_props.coulomb_coeff)  # B-C
+        + coulomb_interaction(-1.0, 1.0, 3.0, mock_props.coulomb_coeff)  # B-D
     )
 
     # Total potential
@@ -76,7 +73,7 @@ def test_coulomb_two_molecules():
     assert np.isclose(potential, expected_potential)
 
 
-def test_lennard_jones_single_molecule():
+def test_lennard_jones_single_molecule(mock_props: SystemProperties):
     """Test Lennard-Jones potential for a single molecule."""
     # Define a simple molecule with two atoms
     positions = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
@@ -85,21 +82,17 @@ def test_lennard_jones_single_molecule():
     )
 
     # Set Lennard-Jones parameters
-    A = 1.0
-    B = 1.0
-
-    # pseudo box as non periodic here
-    box = np.zeros(3)
+    A, B = mock_props.lj_params
 
     # Calculate Lennard-Jones potential
-    potential = lennard_jones(data, data, box, False, A=A, B=B)
+    potential = lennard_jones(data, data, mock_props)
 
     # Expected potential: A/r^12 - B/r^6, where r = 1
     expected_potential = 0.0
     assert np.isclose(potential, expected_potential)
 
 
-def test_lennard_jones_two_molecules():
+def test_lennard_jones_two_molecules(mock_props):
     """Test Lennard-Jones potential for two interacting molecules."""
     # Define two molecules
     positions1 = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
@@ -120,13 +113,11 @@ def test_lennard_jones_two_molecules():
     )
 
     # Set Lennard-Jones parameters
-    A = 1.0
-    B = 1.0
-
-    box = np.zeros(3)
+    A, B = mock_props.lj_params
 
     # Calculate Lennard-Jones potential between the two molecules
-    potential = lennard_jones(combined_data, data1, box, False, A=A, B=B)
+    potential = lennard_jones(combined_data, data1, mock_props)
+    print(A, B, mock_props.coulomb_coeff, mock_props.lj_params)
 
     # Calculate expected potential
     # Distances: A-B=1, A-C=3, A-D=4, B-C=2, B-D=3
