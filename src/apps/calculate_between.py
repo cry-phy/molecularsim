@@ -7,8 +7,9 @@ python src/apps/calculate_between.py -f tests/data/water_zmatrix.com -n 2 -t 10 
 
 from molecsim.system.calculations import full_potential, potential_breakdown
 from molecsim.system.data import make_potcall, SystemForces, SystemProperties
+from molecsim.system.mutate import mutate_rotate, mutate_translate, propose_new
 from molecsim.system.potentials import coulomb, lennard_jones
-from molecsim.system.system import randomized_system
+from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_com
 from molecsim.utils.rng import RNG
 
@@ -80,8 +81,8 @@ if __name__ == "__main__":
 
     sim = randomized_system(props, rng)
 
-    coulomb_cont = make_potcall(coulomb, sim.data, props.box, False)
-    lj_cont = make_potcall(lennard_jones, sim.data, props.box, False)
+    coulomb_cont = make_potcall(coulomb, props.box, False)
+    lj_cont = make_potcall(lennard_jones, props.box, False)
 
     forces = SystemForces([coulomb_cont, lj_cont])
 
@@ -92,3 +93,11 @@ if __name__ == "__main__":
     for name, cont in breakdown:
         print(f"\tContributor {name}: {cont}")
     print(f"For a total of {full}!")
+
+    steps = 10
+
+    mutation_functions = [mutate_rotate, mutate_translate]
+    print(f"Now running system for: {steps}")
+    for step in range(steps):
+        print(f"Step: {step}")
+        old_molecule, new_molecule = propose_new(sim, mutation_functions, 1, rng)

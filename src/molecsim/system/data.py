@@ -132,6 +132,8 @@ class SystemProperties:
         T: Kelvin
     """
 
+    _k_b = 1.380649e-23
+
     def __init__(
         self,
         molecules: dict[Molecule, int],
@@ -159,6 +161,11 @@ class SystemProperties:
     def temperature(self):
         """The temperature property."""
         return self._temperature
+
+    @property
+    def heat_energy(self):
+        """The heat_energy property."""
+        return self._temperature * self._k_b
 
 
 @runtime_checkable

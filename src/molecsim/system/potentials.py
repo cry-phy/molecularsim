@@ -42,11 +42,12 @@ def distance_squares(
 
 def harmonic_well(
     data: SystemData,
+    molecule_data: SystemData,
     curvature: npt.NDArray[FloatPrecision] = np.full(1, 1),
     center: npt.NDArray[FloatPrecision] = np.full(1, 0),
 ) -> float:
-    """Quadratic well: sum_i ( (r_i - c)^2 * k ) over all atoms."""
-    rel = data.positions - center.astype(FLOAT_DTYPE, copy=False)
+    """Quadratic well: sum_i ( (r_i - c)^2 * k ) over molecule_data."""
+    rel = molecule_data.positions - center.astype(FLOAT_DTYPE, copy=False)
     single = (rel * rel) * curvature.astype(FLOAT_DTYPE, copy=False)
     return float(np.sum(single, dtype=FLOAT_DTYPE))
 
@@ -78,6 +79,7 @@ def coulomb(
     # since molecule is small in comparison to data
 
     # Calculate interactions to atoms outside the molecule only
+    print(data, molecule_data, box, periodic)
     r2 = distance_squares(data, molecule_data, box, periodic=periodic)
     distances = np.sqrt(r2)
     mask = extra_interaction_mask(data, molecule_data)

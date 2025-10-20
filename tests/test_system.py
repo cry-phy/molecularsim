@@ -4,8 +4,9 @@ import pytest
 
 from molecsim.system.data import SystemData, SystemProperties
 from molecsim.system.molecule import Molecule
-from molecsim.system.system import randomized_system, SimSystem
+from molecsim.system.system import SimSystem
 from molecsim.utils.geometry import BOUND_EPS
+from molecsim.utils.place import randomized_system
 from molecsim.utils.rng import RNG
 from tests.fixtures import props, second_proto, test_molecule, test_rng
 

@@ -1,15 +1,13 @@
 """Contains the simulation architecture and time iteration schemes."""
 
-from molecsim.system import calculations, data, mutate, potentials
+from molecsim.system import calculations, data, potentials
 from molecsim.system.molecule import Molecule
-from molecsim.system.system import SimSystem, randomized_system
+from molecsim.system.system import SimSystem
 
 __all__ = [
     "data",
-    "mutate",
     "Molecule",
     "SimSystem",
-    "randomized_system",
     "potentials",
     "calculations",
 ]

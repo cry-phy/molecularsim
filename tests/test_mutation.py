@@ -4,15 +4,17 @@ import pytest
 from tests.fixtures import test_molecule, test_rng
 from molecsim.utils.rng import RNG
 from molecsim.system.molecule import Molecule
-from molecsim.system.mutate import mutate_translate, mutate_rotate, MUTATION_FUNCTIONS
+from molecsim.system.mutate import mutate_translate, mutate_rotate
+
+MUTATION_FUNCTIONS = [mutate_rotate, mutate_translate]
 
 
 def is_proper_rotation(rotation_matrix: np.ndarray, rtol=1e-10, atol=1e-12) -> bool:
     """Check if a matrix is a proper rotation matrix."""
     identity_matrix = np.eye(3, dtype=rotation_matrix.dtype)
-    return np.allclose(rotation_matrix.T @ rotation_matrix, identity_matrix, rtol=rtol, atol=atol) and np.allclose(
-        np.linalg.det(rotation_matrix), 1.0, rtol=rtol, atol=1e-10
-    )
+    return np.allclose(
+        rotation_matrix.T @ rotation_matrix, identity_matrix, rtol=rtol, atol=atol
+    ) and np.allclose(np.linalg.det(rotation_matrix), 1.0, rtol=rtol, atol=1e-10)
 
 
 def test_mutate_translate_shifts_positions(test_molecule: Molecule, test_rng: RNG):
@@ -31,7 +33,9 @@ def test_mutate_translate_shifts_positions(test_molecule: Molecule, test_rng: RN
     shift = mol1.center - c0
 
     # Every atom must have moved by the same shift
-    np.testing.assert_allclose(mol1.data.positions, orig + shift, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        mol1.data.positions, orig + shift, rtol=1e-12, atol=1e-12
+    )
 
     # Deepcopy semantics
     assert mol1 is not mol0

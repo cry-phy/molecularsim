@@ -75,11 +75,14 @@ def flex_dummy_grid():
 
     return _grid
 
+
 @pytest.fixture
 def lin_sum_x():
-    def energy(data: SystemData, bias: float = 0.0) -> float:
-        return float(np.sum(data.positions[:, 0]) + bias)
+    def energy(data1: SystemData, data2: SystemData, bias: float = 0.0) -> float:
+        return float(np.sum(data1.positions[:, 0]) + bias)
+
     return energy
+
 
 @pytest.fixture
 def simsys():
@@ -88,5 +91,7 @@ def simsys():
     pos = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
     charges = np.zeros(2)
     data = SystemData.as_owner(atoms, pos, charges)
-    props = SystemProperties(molecules={}, box=np.array([5.0, 5.0, 5.0]), temperature=300.0)
+    props = SystemProperties(
+        molecules={}, box=np.array([5.0, 5.0, 5.0]), temperature=300.0
+    )
     return SimSystem(contigous_data=data, molecules=(), properties=props)

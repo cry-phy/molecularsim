@@ -27,7 +27,7 @@ class Molecule:
         # default to first atom for now, later COM?
         self._center: StructureArray | StructureView = data.positions[0]
 
-    def set(self, data: SystemData) -> None:
+    def copy_from(self, data: SystemData) -> None:
         """Set underlying data with copies of this data."""
         self._data_slices.copy_from(data)
 
