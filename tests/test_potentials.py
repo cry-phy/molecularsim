@@ -117,7 +117,6 @@ def test_lennard_jones_two_molecules(mock_props):
 
     # Calculate Lennard-Jones potential between the two molecules
     potential = lennard_jones(combined_data, data1, mock_props)
-    print(A, B, mock_props.coulomb_coeff, mock_props.lj_params)
 
     # Calculate expected potential
     # Distances: A-B=1, A-C=3, A-D=4, B-C=2, B-D=3

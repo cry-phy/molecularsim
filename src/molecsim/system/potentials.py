@@ -144,5 +144,4 @@ def lennard_jones(
     intra_potentials = a / intra_r12 - b / intra_r6
     intra_part = np.sum(intra_potentials)
 
-    print(props._LJ_A, props._LJ_B)
     return extra_part + intra_part

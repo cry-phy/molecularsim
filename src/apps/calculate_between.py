@@ -5,6 +5,7 @@ Usage example (called from project root):
 python src/apps/calculate_between.py -f tests/data/water_zmatrix.com -n 2 -t 10 -b 10,10,10
 """
 
+import time
 from molecsim.system.calculations import (
     calculate_potential,
     full_potential,
@@ -50,8 +51,9 @@ if __name__ == "__main__":
         print(f"\tContributor {name}: {cont}")
     print(f"For a total of {full}!")
 
-    steps = 10
+    steps = 100
 
+    start = time.perf_counter_ns()
     mutation_functions = [mutate_rotate, mutate_translate]
     print(f"Now running system for: {steps}")
     for step in range(steps):
@@ -70,3 +72,7 @@ if __name__ == "__main__":
             print(f"\tDelta E / kT = {diff}/{props.heat_energy} was accepted.")
         else:
             print(f"\tDelta E / kT = {diff}/{props.heat_energy} was rejected.")
+
+    end = time.perf_counter_ns()
+
+    print(f"Time per interation: {(end - start) / steps * 1e-6} ms")
