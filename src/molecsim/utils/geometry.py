@@ -9,7 +9,6 @@ from molecsim.system.data import (
     SystemData,
     SystemProperties,
 )
-from molecsim.system.molecule import Molecule
 
 if typing.TYPE_CHECKING:
     from molecsim.utils.rng import RNG
@@ -18,7 +17,10 @@ BOUND_EPS = 1e-8
 
 
 def rot_matrix(bend_angle: float, dihedral_angle: float) -> npt.NDArray[FloatPrecision]:
-    """Generate a 3D rotation matrix from bend and dihedral angles (radians)."""
+    """Generate a 3D rotation matrix from bend and dihedral angles (radians).
+
+    Now deprecated since it doesnt appreciate homogenous sampling.
+    """
     cos_bend = np.cos(bend_angle)
     sin_bend = np.sin(bend_angle)
     cos_dihedral = np.cos(dihedral_angle)
@@ -34,10 +36,60 @@ def rot_matrix(bend_angle: float, dihedral_angle: float) -> npt.NDArray[FloatPre
     )
 
 
+def rot_matrix_uniform(
+    u1: float, u2: float, u3: float, theta_max: float
+) -> npt.NDArray[FloatPrecision]:
+    """Generate rotation matrix uniform up to angle.
+
+    Truly black magic but somehow works!!.
+    """
+    phi = 2 * np.pi * u1
+    z = 2 * u2 - 1
+    r = np.sqrt(1 - z**2)
+    kx = r * np.cos(phi)
+    ky = r * np.sin(phi)
+    kz = z
+
+    theta_max = float(np.clip(theta_max, 0.0, np.pi))
+    if theta_max == 0.0:
+        return np.eye(3, dtype=FLOAT_DTYPE)
+
+    c1 = theta_max - np.sin(theta_max)
+    u = np.clip(u3, 0.0, 1.0)
+
+    c = ((6.0 * c1) ** (1.0 / 3.0)) / theta_max - 1.0
+    theta = ((6.0 * c1 * u) ** (1.0 / 3.0)) / (1.0 + c * (u ** (2.0 / 3.0)))
+
+    c2 = u * c1
+    for _ in range(2):
+        denom = 1.0 - np.cos(theta)
+        if denom < 1e-12:
+            theta += 1e-6
+            denom = 1.0 - np.cos(theta)
+        theta -= (theta - np.sin(theta) - c2) / denom
+    theta = float(np.clip(theta, 0.0, theta_max))
+
+    cth = np.cos(theta)
+    sth = np.sin(theta)
+    t = 1.0 - cth
+
+    return np.array(
+        [
+            [cth + kx * kx * t, kx * ky * t - kz * sth, kx * kz * t + ky * sth],
+            [ky * kx * t + kz * sth, cth + ky * ky * t, ky * kz * t - kx * sth],
+            [kz * kx * t - ky * sth, kz * ky * t + kx * sth, cth + kz * kz * t],
+        ],
+        dtype=FLOAT_DTYPE,
+    )
+
+
 def rot_matrix_quaternions(
     u1: float, u2: float, u3: float
 ) -> npt.NDArray[FloatPrecision]:
-    """Rotation matrix using quaternions."""
+    """Rotation matrix using quaternions.
+
+    Now deprecated since it doesnt allow for easy limits to rotation.
+    """
     # No real clue whats going on here but seems to work (ChatGPT)
     # Using method from "Graphics Gems" (Ken Shoemake)
     q = np.array(
