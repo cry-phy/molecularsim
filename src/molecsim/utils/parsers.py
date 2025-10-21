@@ -1,4 +1,4 @@
-from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, SystemData
+from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, StructureNode, SystemData
 from molecsim.system.molecule import Molecule
 import os
 import re
@@ -35,7 +35,7 @@ def parse_z_matrix(path: str) -> Molecule:
 
 
 def detect_geometry_type(line: str) -> str:
-    """Detec gaussian geometry file coordiante type."""
+    """Detect gaussian geometry file coordiante type."""
     return "unknown"
 
 
@@ -142,6 +142,7 @@ def _parse_zmatrix_block(
     npt.NDArray[FloatPrecision],
     npt.NDArray[np.int32],
     npt.NDArray[np.int32],
+    list[StructureNode],
 ]:
     """Parse a Gaussian Z-matrix block starting at line index `start`."""
 
@@ -157,6 +158,7 @@ def _parse_zmatrix_block(
     p2 = parts_at(start + 2)
     atoms: list[str] = [p0[0], p1[0], p2[0]]
     coords: list[npt.NDArray[FloatPrecision]] = []
+    nodes: list[StructureNode] = [StructureNode(0, [])]
 
     coords.append(np.array([0.0, 0.0, 0.0], dtype=FLOAT_DTYPE))
 
@@ -164,6 +166,7 @@ def _parse_zmatrix_block(
     r12 = float(p1[2])
     pos2 = coords[ref1_idx] + np.array([0.0, 0.0, r12], dtype=FLOAT_DTYPE)
     coords.append(pos2)
+    nodes.append(StructureNode(1, [nodes[ref1_idx]]))
 
     ref1_idx = int(p2[1]) - 1
     r = float(p2[2])
@@ -179,6 +182,7 @@ def _parse_zmatrix_block(
         dihedral_deg=0.0,
     )
     coords.append(pos3)
+    nodes.append(StructureNode(2, [nodes[ref1_idx]]))
     charges: list[float] = [0.0, 0.0, 0.0]
     multiplicity: list[int] = [0, 0, 0]
     fragment: list[int] = [0, 0, 0]
@@ -229,6 +233,7 @@ def _parse_zmatrix_block(
 
         atoms.append(symbol)
         coords.append(new_pos)
+        nodes.append(StructureNode(i - start, [nodes[r1]]))
         charges.append(0.0)
         multiplicity.append(0)
         fragment.append(0)
@@ -239,7 +244,7 @@ def _parse_zmatrix_block(
     multiplicity_arr = np.asarray(multiplicity, dtype=np.int32)
     fragment_arr = np.asarray(fragment, dtype=np.int32)
 
-    return atoms, coords_arr, charges_arr, multiplicity_arr, fragment_arr
+    return atoms, coords_arr, charges_arr, multiplicity_arr, fragment_arr, nodes
 
 
 def parse_com(path: str) -> Molecule:
@@ -260,6 +265,7 @@ def parse_com(path: str) -> Molecule:
         raise ValueError(f"Could not find charge/multiplicity line in {path}")
 
     parts = lines[geom_start].split()
+    nodes = None
     # If 2-3 floats after element: Cartesian
     if len(parts) >= 4 and all(re.match(r"^[+-]?\d*\.\d+$", p) for p in parts[1:4]):
         try:
@@ -271,14 +277,16 @@ def parse_com(path: str) -> Molecule:
     # Single atom name: Z-matrix
     if len(parts) == 1:
         try:
-            atoms, positions, charges, _, _ = _parse_zmatrix_block(lines, geom_start)
+            atoms, positions, charges, _, _, nodes = _parse_zmatrix_block(
+                lines, geom_start
+            )
             data = SystemData.as_owner(atoms, positions, charges)
         except Exception as e:
             raise RuntimeError("Could not parse file.") from e
 
     if not data:
         raise RuntimeError("Could not load data.")
-    return Molecule(data)
+    return Molecule(data, nodes)
 
 
 EXTENSION_MAPPING: dict[str, Parser] = {

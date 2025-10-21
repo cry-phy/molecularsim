@@ -175,6 +175,10 @@ class StructureNode:
         self.molecular_index: int = molecular_index
         self.neighbors: list[StructureNode] = list(neighbors)
 
+    def __repr__(self) -> str:
+        """Give simple representation."""
+        return f"""<StructureNode: {self.molecular_index}, {[neigh.molecular_index for neigh in self.neighbors]}>"""
+
 
 class SystemProperties:
     """Immutable wrapper for calculating and storing system properties.
