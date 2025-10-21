@@ -138,3 +138,20 @@ def test_lennard_jones_two_molecules(mock_props):
     print("Expected potential:", expected_potential)
 
     assert np.isclose(potential, expected_potential)
+
+
+def test_minimum_image_convention():
+    """Test that the minimum image convention works as expected."""
+    box = np.array([10.0, 10.0, 10.0], dtype=float)
+    positions = np.array(
+        [
+            [1.0, 1.0, 1.0],
+            [9.0, 9.0, 9.0],
+        ],
+        dtype=float,
+    )
+    dist_vec = positions[0] - positions[1]
+    dist_vec -= box * np.round(dist_vec / box)
+    mic_distance = np.linalg.norm(dist_vec)
+    expected_distance = np.linalg.norm([2.0, 2.0, 2.0])
+    assert np.isclose(mic_distance, expected_distance, rtol=1e-12, atol=1e-12)

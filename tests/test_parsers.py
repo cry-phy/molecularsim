@@ -84,7 +84,7 @@ def test_parse_water_shapes_and_types(filename: str):
     assert isinstance(coords, np.ndarray)
     assert coords.shape == (3, 3)
 
-    symbols = _get_symbols(mol)
+    symbols = list(mol.data.atoms_as_str()) if hasattr(mol.data, "atoms_as_str") else _get_symbols(mol)
     assert len(symbols) == 3
     assert symbols.count("O") == 1
     assert symbols.count("H") == 2
@@ -97,8 +97,7 @@ def test_parse_water_geometry_is_correct(filename: str):
     mol = parse_z_matrix(str(path))
 
     coords = _get_coords(mol)
-    symbols = _get_symbols(mol)
-
+    symbols = list(mol.data.atoms_as_str()) if hasattr(mol.data, "atoms_as_str") else _get_symbols(mol)
     idx_O = symbols.index("O")
     idx_H = [i for i, s in enumerate(symbols) if s == "H"]
     assert len(idx_H) == 2

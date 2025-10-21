@@ -100,7 +100,6 @@ def simsys():
 @pytest.fixture
 def mock_props() -> SystemProperties:
     """Mock SystemProperties with LJ_A/B and coulomb_coeff set to 1."""
-
     class MockSystemProperties(SystemProperties):
         @property
         def lj_params(self):
@@ -112,7 +111,7 @@ def mock_props() -> SystemProperties:
 
     box = np.array([10.0, 8.0, 6.0], dtype=float)
     return MockSystemProperties(
-        molecules={},
+        molecules={test_molecule: 2, second_proto: 1},
         box=box,
         temperature=300.0,
         periodic=False,
