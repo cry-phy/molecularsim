@@ -1,7 +1,7 @@
 from molecsim.system.data import SystemData, SystemProperties
 from molecsim.system.mutate import mutate_rotate
 from molecsim.system.system import SimSystem
-from molecsim.utils.geometry import fuzzyfy, keep_molecule_in_box
+from molecsim.utils.geometry import fuzzyfy, contain_to_box
 from molecsim.utils.grids import simple_cubic
 from molecsim.utils.rng import RNG
 
@@ -27,9 +27,7 @@ def randomized_system(
         molecule_slice = data.allocate_molecule(molec_sample.size())
         rotated = mutate_rotate(molec_sample, 1, rng)
         rotated.data.positions += fuzzy_node
-        rotated.data.positions[:] = keep_molecule_in_box(
-            rotated.data.positions, properties.box, properties.periodic
-        )
+        contain_to_box(rotated.data, properties)
         rotated.move_to(molecule_slice)
         molecules.append(rotated)
     return SimSystem(data, molecules, properties)

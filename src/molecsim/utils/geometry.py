@@ -2,7 +2,14 @@ from __future__ import annotations
 import typing
 import numpy as np
 import numpy.typing as npt
-from molecsim.system.data import FloatPrecision, FLOAT_DTYPE, StructureArray
+from molecsim.system.data import (
+    FloatPrecision,
+    FLOAT_DTYPE,
+    StructureArray,
+    SystemData,
+    SystemProperties,
+)
+from molecsim.system.molecule import Molecule
 
 if typing.TYPE_CHECKING:
     from molecsim.utils.rng import RNG
@@ -53,6 +60,21 @@ def rot_matrix_quaternions(
     return matrix
 
 
+def contain_to_box(
+    data: SystemData,
+    props: SystemProperties,
+) -> None:
+    """Contain molecule into box based on periodicidy."""
+    if props.periodic:
+        new_positions = wrap_periodic(
+            data.positions, np.zeros_like(props.box), props.box
+        )
+        data.positions = new_positions
+    else:
+        new_positions = hold_non_periodic(data.positions, props.box)
+        data.positions = new_positions
+
+
 def wrap_periodic(x, a, b):
     """Wrap N-D positions x into the periodic interval [a, b)."""
     x = np.asarray(x)
@@ -61,18 +83,15 @@ def wrap_periodic(x, a, b):
     return a + np.mod(x - a, b - a)
 
 
-def keep_molecule_in_box(
+def hold_non_periodic(
     positions: npt.NDArray[np.floating],
     box: npt.NDArray[np.floating],
-    periodic: bool,
     *,
     eps: float = 1e-9,
-) -> npt.NDArray[np.floating]:
+) -> StructureArray:
     """Return positions moved into [0, box) without breaking rigidity."""
     positions = np.asarray(positions)
     box = np.asarray(box)
-    if periodic:
-        return np.mod(positions, box)
     mins = positions.min(axis=0)
     maxs = positions.max(axis=0)
     spans = maxs - mins

@@ -1,4 +1,6 @@
 from collections.abc import Callable, Sequence
+from molecsim.system.data import SystemProperties
+from molecsim.utils.geometry import contain_to_box
 from molecsim.utils.rng import RNG
 from molecsim.system.molecule import Molecule
 from molecsim.system.system import SimSystem
@@ -37,4 +39,5 @@ def propose_new(
     old_molecule = system.molecules[molecule_index]
     mutation_fn = mutation_functions[mutation_function_index]
     new_molecule = mutation_fn(old_molecule, magnitude, rng)
+    contain_to_box(new_molecule.data, system.properties)
     return old_molecule, new_molecule

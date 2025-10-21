@@ -75,4 +75,4 @@ if __name__ == "__main__":
 
     end = time.perf_counter_ns()
 
-    print(f"Time per interation: {(end - start) / steps * 1e-6} ms")
+    print(f"Time per interation: {(end - start) / steps / 1e-6} ms")
