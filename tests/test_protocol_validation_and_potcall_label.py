@@ -12,8 +12,8 @@ from tests.fixtures import simsys, lin_sum_x
 
 def test_validate_contributor_requires_defaults_or_runtime_guard(simsys):
     """Test that validate_contributor requires defaults or runtime guard."""
-    # 'bad' requires an extra arg 'y' without a default
-    def bad(data, x, y):
+    # 'bad' requires an extra arg 'z' without a default
+    def bad(data, x, y, z):
         return 0.0
 
     # Prefer compile-time validation if available:
@@ -25,7 +25,7 @@ def test_validate_contributor_requires_defaults_or_runtime_guard(simsys):
 
     if not raised:
         # If validator is permissive, ensure evaluation fails when args are missing.
-        pot_call = make_potcall(bad, 1, name="bad")  # provide x only; y missing
+        pot_call = make_potcall(bad, 1, name="bad")  # provide x, only; y,z missing
         forces = SystemForces([pot_call])
         with pytest.raises(TypeError):
             full_potential(simsys, forces)

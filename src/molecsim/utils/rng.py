@@ -22,9 +22,13 @@ class RNG:
         u1, u2, u3 = self._rng.random(3)
         return rot_matrix_quaternions(u1, u2, u3)
 
+    def random(self) -> float:
+        """Generate random number in interval [0,1]."""
+        return self._rng.random()
+
     def random_like(self, array: npt.NDArray, limit: float = 1) -> npt.NDArray:
         """Generate random numbers of the same shape."""
-        return np.random.random(size=array.shape) * limit
+        return self._rng.random(size=array.shape) * limit
 
     def choose_indices(
         self,
@@ -33,4 +37,8 @@ class RNG:
         replace: bool = False,
     ) -> npt.NDArray:
         """Generate choices of indices up to upper."""
-        return np.random.choice(upper, size=size, replace=replace)
+        return self._rng.choice(upper, size=size, replace=replace)
+
+    def randint(self, upper: int) -> int:
+        """Random integer."""
+        return self._rng.integers(0, high=upper)

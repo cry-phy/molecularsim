@@ -1,6 +1,7 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from molecsim.utils.rng import RNG
 from molecsim.system.molecule import Molecule
+from molecsim.system.system import SimSystem
 
 type MutateFunction = Callable[[Molecule, float, RNG], Molecule]
 
@@ -21,4 +22,19 @@ def mutate_rotate(molecule: Molecule, magnitude: float, rng: RNG) -> Molecule:
     return Molecule(new_data)
 
 
-MUTATION_FUNCTIONS: list[MutateFunction] = [mutate_translate, mutate_rotate]
+def propose_new(
+    system: SimSystem,
+    mutation_functions: Sequence[MutateFunction],
+    magnitude: float,
+    rng: RNG,
+) -> tuple[Molecule, Molecule]:
+    """Propose change in system based on change of one molecule.
+
+    Returns tuple[old, new].
+    """
+    molecule_index = rng.randint(len(system.molecules))
+    mutation_function_index = rng.randint(len(mutation_functions))
+    old_molecule = system.molecules[molecule_index]
+    mutation_fn = mutation_functions[mutation_function_index]
+    new_molecule = mutation_fn(old_molecule, magnitude, rng)
+    return old_molecule, new_molecule

@@ -75,11 +75,14 @@ def flex_dummy_grid():
 
     return _grid
 
+
 @pytest.fixture
 def lin_sum_x():
-    def energy(data: SystemData, bias: float = 0.0) -> float:
-        return float(np.sum(data.positions[:, 0]) + bias)
+    def energy(data1: SystemData, data2: SystemData, bias: float = 0.0) -> float:
+        return float(np.sum(data1.positions[:, 0]) + bias)
+
     return energy
+
 
 @pytest.fixture
 def simsys():
@@ -88,5 +91,29 @@ def simsys():
     pos = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
     charges = np.zeros(2)
     data = SystemData.as_owner(atoms, pos, charges)
-    props = SystemProperties(molecules={}, box=np.array([5.0, 5.0, 5.0]), temperature=300.0)
+    props = SystemProperties(
+        molecules={}, box=np.array([5.0, 5.0, 5.0]), temperature=300.0
+    )
     return SimSystem(contigous_data=data, molecules=(), properties=props)
+
+
+@pytest.fixture
+def mock_props() -> SystemProperties:
+    """Mock SystemProperties with LJ_A/B and coulomb_coeff set to 1."""
+
+    class MockSystemProperties(SystemProperties):
+        @property
+        def lj_params(self):
+            return 1.0, 1.0
+
+        @property
+        def coulomb_coeff(self):
+            return 1.0
+
+    box = np.array([10.0, 8.0, 6.0], dtype=float)
+    return MockSystemProperties(
+        molecules={},
+        box=box,
+        temperature=300.0,
+        periodic=False,
+    )

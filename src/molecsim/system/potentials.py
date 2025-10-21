@@ -1,6 +1,11 @@
 """All force Calculations should be made using a function following PotContributor Signature."""
 
-from molecsim.system.data import FloatPrecision, SystemData, FLOAT_DTYPE
+from molecsim.system.data import (
+    FloatPrecision,
+    SystemData,
+    FLOAT_DTYPE,
+    SystemProperties,
+)
 import numpy.typing as npt
 import numpy as np
 
@@ -42,11 +47,12 @@ def distance_squares(
 
 def harmonic_well(
     data: SystemData,
+    molecule_data: SystemData,
     curvature: npt.NDArray[FloatPrecision] = np.full(1, 1),
     center: npt.NDArray[FloatPrecision] = np.full(1, 0),
 ) -> float:
-    """Quadratic well: sum_i ( (r_i - c)^2 * k ) over all atoms."""
-    rel = data.positions - center.astype(FLOAT_DTYPE, copy=False)
+    """Quadratic well: sum_i ( (r_i - c)^2 * k ) over molecule_data."""
+    rel = molecule_data.positions - center.astype(FLOAT_DTYPE, copy=False)
     single = (rel * rel) * curvature.astype(FLOAT_DTYPE, copy=False)
     return float(np.sum(single, dtype=FLOAT_DTYPE))
 
@@ -63,9 +69,7 @@ def harmonic_well_gpu(
 def coulomb(
     data: SystemData,
     molecule_data: SystemData,
-    box: npt.NDArray[FloatPrecision],
-    periodic: bool,
-    coeff: float = 1,
+    props: SystemProperties,
 ) -> float:
     """Calculate coulomb interaction between molecule_data atoms and data atoms."""
     if len(molecule_data) > len(data):
@@ -78,21 +82,23 @@ def coulomb(
     # since molecule is small in comparison to data
 
     # Calculate interactions to atoms outside the molecule only
-    r2 = distance_squares(data, molecule_data, box, periodic=periodic)
+    r2 = distance_squares(data, molecule_data, props.box, periodic=props.periodic)
     distances = np.sqrt(r2)
     mask = extra_interaction_mask(data, molecule_data)
     distances[~mask] = np.inf
     charge_prods = data.charges[:, None] * molecule_data.charges[None, :]
-    extra_potentials = coeff * charge_prods / distances
+    extra_potentials = props.coulomb_coeff * charge_prods / distances
     extra_part = np.sum(extra_potentials)
 
     # Calculate interactions within the molecule only
-    intra_r2 = distance_squares(molecule_data, molecule_data, box, periodic=periodic)
+    intra_r2 = distance_squares(
+        molecule_data, molecule_data, props.box, periodic=props.periodic
+    )
     intra_distances = np.sqrt(intra_r2)
     intra_mask = intra_interaction_mask(molecule_data)
     intra_distances[~intra_mask] = np.inf
     intra_charge_prods = molecule_data.charges[None, :] * molecule_data.charges[:, None]
-    intra_potentials = coeff * intra_charge_prods / intra_distances
+    intra_potentials = props.coulomb_coeff * intra_charge_prods / intra_distances
     intra_part = np.sum(intra_potentials)
 
     return extra_part + intra_part
@@ -101,10 +107,7 @@ def coulomb(
 def lennard_jones(
     data: SystemData,
     molecule_data: SystemData,
-    box: npt.NDArray[FloatPrecision],
-    periodic: bool,
-    A: float = 1,
-    B: float = 1,
+    props: SystemProperties,
 ) -> float:
     """Calculate lennard jones interaction between molecule_data atoms and data atoms.
 
@@ -119,22 +122,26 @@ def lennard_jones(
     # be different from data after mutation, overhead is small
     # since molecule is small in comparison to data
 
+    a, b = props.lj_params
+
     # Calculate interactions to atoms outside the molecule only
-    r2 = distance_squares(data, molecule_data, box, periodic=periodic)
+    r2 = distance_squares(data, molecule_data, props.box, periodic=props.periodic)
     mask = extra_interaction_mask(data, molecule_data)
     r2[~mask] = np.inf
     r6 = r2**3
     r12 = r6**2
-    potentials = A / r12 - B / r6
+    potentials = a / r12 - b / r6
     extra_part = np.sum(potentials)
 
     # Calculate interactions within the molecule only
-    intra_r2 = distance_squares(molecule_data, molecule_data, box, periodic=periodic)
+    intra_r2 = distance_squares(
+        molecule_data, molecule_data, props.box, periodic=props.periodic
+    )
     intra_mask = intra_interaction_mask(molecule_data)
     intra_r2[~intra_mask] = np.inf
     intra_r6 = intra_r2**3
     intra_r12 = intra_r6**2
-    intra_potentials = A / intra_r12 - B / intra_r6
+    intra_potentials = a / intra_r12 - b / intra_r6
     intra_part = np.sum(intra_potentials)
 
     return extra_part + intra_part
