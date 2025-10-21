@@ -12,6 +12,7 @@ if typing.TYPE_CHECKING:
     from molecsim.system.molecule import Molecule
 
 FLOAT_DTYPE: Final = np.float64
+INT_DTYPE: Final = np.int32
 
 type FloatPrecision = np.float64
 type StructureArray = npt.NDArray[FloatPrecision]
@@ -26,36 +27,70 @@ class SystemData:
     def __init__(self, n: int) -> None:
         """Generate zeroed System Data for *n* Atoms."""
         self._positions: StructureArray | StructureView = np.zeros(
-            shape=(n, 3), dtype=FLOAT_DTYPE
+            (n, 3), dtype=FLOAT_DTYPE
         )
         self._charges: StructureArray | StructureView = np.zeros(n, dtype=FLOAT_DTYPE)
-        self._atoms: npt.NDArray[np.object_] = np.array([""] * n)
+        self._atoms: npt.NDArray[INT_DTYPE] = np.zeros(n, dtype=INT_DTYPE)
+        self._atom_str_to_int: dict[str, int] = {}
+        self._atom_int_to_str: npt.NDArray[np.object_] = np.empty(0, dtype=object)
+
         self._first_empty: int = 0
         self._start_index: int = 0
 
     @classmethod
     def as_owner(
-        cls, atoms: Iterable[str], positions: StructureArray, charges: StructureArray
+        cls,
+        atoms: Iterable[str],
+        positions: StructureArray,
+        charges: StructureArray,
+        mapping: tuple[dict[str, int], npt.NDArray[np.object_]] | None = None,
     ) -> SystemData:
         """Generate Data as a copy where ownership is with this instance."""
-        instance = cls(len(charges))
-        instance._atoms = np.asarray(atoms, copy=True)
+        n = len(charges)
+        instance = cls(n)
+
+        if not mapping:
+            ordered = list(dict.fromkeys(atoms))
+            s2i = {s: i for i, s in enumerate(ordered)}
+            i2s = np.array(ordered, dtype=object)
+        else:
+            s2i, i2s = mapping
+
+        instance._atom_str_to_int = s2i
+        instance._atom_int_to_str = i2s
+
+        instance._atoms = np.fromiter((s2i[a] for a in atoms), dtype=INT_DTYPE, count=n)
+
         instance._positions = positions.copy()
         instance._charges = charges.copy()
         return instance
 
-    def as_borrow(
-        self,
-        start: int,
-        size: int,
-    ) -> SystemData:
+    def as_borrow(self, start: int, size: int) -> SystemData:
         """Generate Data as a copy where ownership is with this instance."""
         instance = SystemData(size)
-        instance._atoms = self._atoms.view()[start : start + size]
-        instance._positions = self._positions.view()[start : start + size]
-        instance._charges = self._charges.view()[start : start + size]
+        stop = start + size
+        instance._atoms = self._atoms[start:stop]
+        instance._positions = self._positions[start:stop]
+        instance._charges = self._charges[start:stop]
+
+        instance._atom_int_to_str = self._atom_int_to_str
+        instance._atom_str_to_int = self._atom_str_to_int
+
         instance._start_index = start
         return instance
+
+    def atom_ids_to_str(self, ids: npt.NDArray[INT_DTYPE]) -> npt.NDArray[np.object_]:
+        """Fast conversion from ids to strings."""
+        return self._atom_int_to_str[ids]
+
+    def atom_str_to_ids(self, strings: Iterable[str]) -> npt.NDArray[INT_DTYPE]:
+        """Fast conversion from strings to ids."""
+        s2i = self._atom_str_to_int
+        return np.fromiter((s2i[s] for s in strings), dtype=INT_DTYPE)
+
+    def atoms_as_str(self) -> npt.NDArray[np.object_]:
+        """Return full system atom types."""
+        return self._atom_int_to_str[self._atoms]
 
     def allocate_molecule(
         self,
@@ -67,7 +102,12 @@ class SystemData:
         return new_data
 
     def copy_from(self, data: SystemData) -> None:
-        """Copy data from another system into this location."""
+        """Copy data from another system into this location.
+
+        Does not update id mappings!
+        """
+        if self._atom_int_to_str is data._atom_int_to_str:
+            raise ValueError("Mappings must be compatible.")
         np.copyto(self._atoms, data._atoms)
         np.copyto(self._positions, data._positions)
         np.copyto(self._charges, data._charges)
@@ -100,7 +140,16 @@ class SystemData:
 
     @charges.setter
     def charges(self, value):
-        self._charges = value
+        np.copyto(self._charges, value)
+
+    @property
+    def atoms(self):
+        """The atoms property."""
+        return self._atoms
+
+    @atoms.setter
+    def atoms(self, value):
+        self._atoms = value
 
     @property
     def first_empty(self):

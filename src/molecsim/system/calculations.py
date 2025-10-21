@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 from collections.abc import Iterable
+from typing import Union
 
-from molecsim.system.data import PotCall, SystemData, SystemForces
+from molecsim.system.data import (
+    INT_DTYPE,
+    PotCall,
+    StructureArray,
+    SystemData,
+    SystemForces,
+    SystemProperties,
+)
 from molecsim.system.molecule import Molecule
+from molecsim.system.potentials import distance_squares
 from molecsim.system.system import SimSystem
+import numpy.typing as npt
+import numpy as np
 
 
 def _iter_enabled(
@@ -81,3 +92,35 @@ def calculate_potential(
         if include_disabled or enabled:
             total += float(fn(large_data, small_data, *args, **kwargs))
     return total
+
+
+def radial_distances(
+    data: SystemData,
+    atoms_a: Iterable[str],
+    atoms_b: Iterable[str],
+    props: SystemProperties,
+    num_bins: int,
+) -> tuple[StructureArray, dict[tuple[str, str], npt.NDArray[INT_DTYPE]]]:
+    """Calculate the distances between all atoms and bin them.
+
+    Since we commonly want the full distributions, we accept all distanfces calculations.
+    """
+    idas = data.atom_str_to_ids(atoms_a)
+    idbs = data.atom_str_to_ids(atoms_b)
+
+    rdfs = {}
+    bins = np.linspace(0, np.sum(props.box**2) ** 0.5, num=num_bins, endpoint=True)
+    # bin in squared space to avoid square N**2 square roots
+    squared_bins = bins**2
+
+    r2 = distance_squares(data, data, props.box, props.periodic)
+    for ida, stra in zip(idas, atoms_a, strict=True):
+        a_mask = data.atoms == ida
+        for idb, strb in zip(idbs, atoms_b, strict=True):
+            b_mask = data.atoms == idb
+            mask = a_mask[:, None] & b_mask[None, :]
+            distances_squared = r2[mask]
+            hist, _ = np.histogram(distances_squared, bins=squared_bins)
+            rdfs[stra, strb] = hist
+
+    return bins, rdfs
