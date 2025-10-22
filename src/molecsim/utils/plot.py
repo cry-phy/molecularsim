@@ -1,15 +1,18 @@
-from collections.abc import Iterable
-from typing import Sequence
-from molecsim.system.data import FLOAT_DTYPE, StructureArray
-import numpy.typing as npt
+from __future__ import annotations
+
+from collections.abc import Iterable, Sequence
+
 import numpy as np
+import numpy.typing as npt
 import plotly.graph_objects as go
+
+from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, StructureArray
 from molecsim.system.molecule import Molecule
 from molecsim.system.system import SimSystem
 
 # Use common color scheme (RasMol)
 # http://www.pdg.cnb.uam.es/cursos/BioInfo2002/pages/Farmac/CMU_course/Periodic/ElemList.htm
-_ELEMENT_COLOR_RASMOL = {
+_ELEMENT_COLOR_RASMOL: dict[str, str] = {
     "DEFAULT": "#FF1493",
     "H": "#FFFFFF",
     "He": "#FFC8C8",
@@ -44,44 +47,55 @@ _ELEMENT_COLOR_RASMOL = {
 }
 
 
-def color_for(elem: str | Iterable[str]) -> str | Iterable[str]:
-    """Return RasMol-style hex color for an element, fallback to deep pink."""
+def color_for(elem: str | Iterable[str]) -> str | list[str]:
+    """Return RasMol-style hex color(s) for element symbol(s), fallback to DEFAULT."""
+
+    def _norm(s: str) -> str:
+        return (s[:1].upper() + s[1:].lower()) if s else ""
+
     if isinstance(elem, str):
-        e = (elem[:1].upper() + elem[1:].lower()) if elem else ""
+        e = _norm(elem)
         return _ELEMENT_COLOR_RASMOL.get(e, _ELEMENT_COLOR_RASMOL["DEFAULT"])
-    elif isinstance(elem, Iterable):
-        es = []
-        for single in elem:
-            e = (single[:1].upper() + single[1:].lower()) if single else ""
-            es.append(_ELEMENT_COLOR_RASMOL.get(e, _ELEMENT_COLOR_RASMOL["DEFAULT"]))
-        return es
+
+    out: list[str] = []
+    for single in elem:
+        s = str(single) if not isinstance(single, str) else single
+        e = _norm(s)
+        out.append(_ELEMENT_COLOR_RASMOL.get(e, _ELEMENT_COLOR_RASMOL["DEFAULT"]))
+    return out
 
 
 def plot_system(sim: SimSystem, fig: go.Figure | None = None) -> go.Figure:
-    """Generate a Figure plotting all molecules and the bonds."""
-    lines = extract_bonds(sim.molecules)
-    sticks = lines_to_sticks(lines)
+    """Generate a Plotly Figure with all molecules and bonds (lines + circles)."""
+    lines = extract_bonds(sim.molecules)  # (n,2,3) or (0,2,3)
+    sticks = lines_to_sticks(lines)  # bonds first
     atoms = positions_to_atoms(sim.data.positions, sim.data.atoms_as_str())
+
     if fig is not None:
-        # Augment an existing figure (no layout mutations)
-        fig.add_traces([sticks, atoms])  # bonds first, atoms second
+        fig.add_traces([sticks, atoms])
         return fig
 
-    # New figure: build + adjust layout
     fig = go.Figure(data=[sticks, atoms])
-    invis_dict = {"visible": False}
+
+    invis = {"visible": False}
+    dark = "#0b0f19"
+
     fig.update_layout(
         title=getattr(sim, "name", None) or "System",
-        margin={"l": 0, "r": 0, "t": 40, "b": 0},
-        scene={
-            "xaxis": invis_dict,
-            "yaxis": invis_dict,
-            "zaxis": invis_dict,
-            "aspectmode": "data",
-        },
+        margin=dict(l=0, r=0, t=40, b=0),
         showlegend=False,
+        paper_bgcolor=dark,
+        plot_bgcolor=dark,
+        font=dict(color="#ECECEC"),
+        scene=dict(
+            xaxis=invis,
+            yaxis=invis,
+            zaxis=invis,
+            aspectmode="data",
+            bgcolor=dark,  # 3D canvas background
+        ),
     )
-    fig.update_scenes(camera={"eye": {"x": 1.6, "y": 1.6, "z": 1.2}})
+    fig.update_scenes(camera=dict(eye=dict(x=1.6, y=1.6, z=1.2)))
     return fig
 
 
@@ -89,17 +103,22 @@ def positions_to_atoms(
     positions: StructureArray,
     atoms: npt.NDArray[np.object_],
 ) -> go.Scatter3d:
-    """Generate atoms plottable from positions and types."""
-    x, y, z = positions.transpose()
-    colors = color_for(atoms)
+    """Generate atom markers from positions and element symbols."""
+    pos = np.asarray(positions)
+    if pos.ndim != 2 or pos.shape[1] != 3:
+        raise ValueError(f"positions must be (N,3), got {pos.shape}")
+
+    x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
+    colors = color_for(np.asarray(atoms, dtype=object).ravel())
+
     return go.Scatter3d(
         x=x,
         y=y,
         z=z,
         mode="markers",
-        marker={"size": 8, "color": colors},
-        line={"width": 1, "color": "black"},
+        marker=dict(size=8, color=colors, line=dict(width=1, color="black")),
         name="atoms",
+        showlegend=False,
     )
 
 
@@ -110,12 +129,17 @@ def lines_to_sticks(
     """Convert endpoints array of shape (n, 2, 3) to a single Plotly Scatter3d lines trace."""
     if lines.size == 0:
         return go.Scatter3d(
-            mode="lines", x=[], y=[], z=[], line={"width": width}, showlegend=False
+            mode="lines",
+            x=[],
+            y=[],
+            z=[],
+            line=dict(width=width, color="#CFCFCF"),
+            hoverinfo="skip",
+            showlegend=False,
         )
 
-    assert lines.ndim == 3 and lines.shape[1] == 2 and lines.shape[2] == 3, (
-        "lines must be (n,2,3)"
-    )
+    if lines.ndim != 3 or lines.shape[1] != 2 or lines.shape[2] != 3:
+        raise ValueError(f"lines must be (n,2,3), got {lines.shape}")
 
     n = lines.shape[0]
     # interleave: p0, p1, sep for each segment
@@ -138,32 +162,39 @@ def lines_to_sticks(
         y=yb,
         z=zb,
         mode="lines",
-        line={"width": width},
+        line=dict(width=width, color="#CFCFCF"),
         hoverinfo="skip",
         showlegend=False,
     )
 
 
 def extract_bonds(molecules: Sequence[Molecule]) -> StructureArray:
-    """Extract all bonds from a list of molecules at once."""
-    bonds = [extract_molecule_bonds(molec) for molec in molecules]
-    data = np.concat(bonds, axis=0)
-    return data
+    """Extract all bonds from a list of molecules at once. Returns (n,2,3)."""
+    parts: list[StructureArray] = []
+    for molec in molecules:
+        segs = extract_molecule_bonds(molec)
+        if segs.size:
+            parts.append(segs)
+    if not parts:
+        return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)
+    return np.concatenate(parts, axis=0)
 
 
 def extract_molecule_bonds(molecule: Molecule) -> StructureArray:
-    """Extract bonds as lines between two points.
-
-    Returns as endpoints array shape (n, 2, dim).
-    """
-    lines_points = []
+    """Extract bonds as segments between two points. Returns (n, 2, 3)."""
     if molecule.structure_nodes is None:
-        return np.empty(0, dtype=FLOAT_DTYPE)
+        return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)
+
+    lines_points: list[
+        tuple[npt.NDArray[FloatPrecision], npt.NDArray[FloatPrecision]]
+    ] = []
     for node in molecule.structure_nodes:
-        line_start = molecule.data.positions[node.molecular_index]
-        neighbor_lines = [
-            (line_start, molecule.data.positions[neighbor.molecular_index])
-            for neighbor in node.neighbors
-        ]
-        lines_points.extend(neighbor_lines)
-    return np.array(lines_points, dtype=FLOAT_DTYPE)
+        i = node.molecular_index
+        p0 = molecule.data.positions[i]
+        for nb in node.neighbors:
+            j = nb.molecular_index
+            lines_points.append((p0, molecule.data.positions[j]))
+
+    if not lines_points:
+        return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)
+    return np.asarray(lines_points, dtype=FLOAT_DTYPE)

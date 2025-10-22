@@ -5,6 +5,9 @@ Usage example (called from project root):
 python src/apps/calculate_between.py -f tests/data/water_zmatrix.com -n 2 -t 10 -b 10,10,10
 """
 
+from os import makedirs
+import os
+from pathlib import Path
 import time
 from molecsim.system.calculations import (
     calculate_potential,
@@ -19,6 +22,7 @@ from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.utils.plot import plot_system
 from molecsim.utils.rng import RNG
+import pickle
 
 import numpy as np
 
@@ -39,7 +43,10 @@ if __name__ == "__main__":
 
     sim = randomized_system(props, rng)  # Ensure deterministic placement
 
-    coulomb_cont = make_potcall(coulomb, props)
+    coulomb_cont = make_potcall(
+        coulomb,
+        props,
+    )
     lj_cont = make_potcall(lennard_jones, props)
 
     forces = SystemForces([coulomb_cont, lj_cont])
@@ -54,14 +61,36 @@ if __name__ == "__main__":
 
     plot_system(sim).show()
 
-    steps = 100
+    steps = int(1e10)
+    outdir = Path("out")
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    save_every_seconds = 60  # 600  # 10 minutes
+    save_count = 1
 
     start = time.perf_counter_ns()
+    last_save = start
+
     mutation_functions = [mutate_rotate, mutate_translate]
-    print(f"Now running system for: {steps}")
+    recent_acceptance = 1
+    alpha = 1e-3
+    print(f"Now running system for: {steps} steps")
     for step in range(steps):
-        print(f"Step: {step}")
-        old_molecule, new_molecule = propose_new(sim, mutation_functions, 1, rng)
+        if step % 1000 == 0:
+            print(f"Step: {step}, recently {recent_acceptance}")
+
+        now = time.perf_counter_ns()
+        if (now - last_save) / 1e9 >= save_every_seconds:
+            tag = f"{save_count:05d}"  # 00001..10000
+            fname_tmp = outdir / f"state_{tag}.pickle.tmp"
+            fname = outdir / f"state_{tag}.pickle"
+            with open(fname_tmp, "wb") as f:
+                pickle.dump(sim, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(fname_tmp, fname)
+            print(f"[checkpoint] saved {fname} at step {step}")
+            save_count += 1
+            last_save = now
+        old_molecule, new_molecule = propose_new(sim, mutation_functions, 0.1, rng)
 
         # should be wrapped like full_potential into molecule_potential
         old_contribution = calculate_potential(sim.data, old_molecule.data, forces)
@@ -70,11 +99,10 @@ if __name__ == "__main__":
         diff = new_contribution - old_contribution
         decider = metropolis(sim.properties, diff, rng)
 
+        recent_acceptance += alpha * (decider - recent_acceptance)
+
         if decider:
             old_molecule.copy_from(new_molecule.data)
-            print(f"\tDelta E / kT = {diff}/{props.heat_energy} was accepted.")
-        else:
-            print(f"\tDelta E / kT = {diff}/{props.heat_energy} was rejected.")
 
     end = time.perf_counter_ns()
 

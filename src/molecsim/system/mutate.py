@@ -10,7 +10,7 @@ type MutateFunction = Callable[[Molecule, float, RNG], Molecule]
 def mutate_translate(molecule: Molecule, magnitude: float, rng: RNG) -> Molecule:
     """Mutate molecule by moving it."""
     new_data = molecule.data.copy_data()
-    shift = magnitude * rng.random_direction()
+    shift = magnitude * rng.random() * rng.random_direction() / 10
     new_data.positions += shift
     return Molecule(new_data)
 
