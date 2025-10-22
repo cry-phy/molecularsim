@@ -41,9 +41,12 @@ class Molecule:
         """The data property."""
         return self._data_slices
 
-    def deepcopy(self) -> Molecule:
-        """Generate deepcopy."""
-        instance = Molecule(self.data.deepcopy(), deepcopy(self._structure_nodes))
+    def copy_data(self) -> Molecule:
+        """Generate deepcopy of molecule.
+
+        Data shares atom conversions.
+        """
+        instance = Molecule(self.data.copy_data(), deepcopy(self._structure_nodes))
         instance._center = self.center.copy()
         return instance
 
@@ -55,3 +58,8 @@ class Molecule:
     def size(self) -> int:
         """Return number of atoms."""
         return len(self._data_slices)
+
+    @property
+    def structure_nodes(self):
+        """The structure_nodes property."""
+        return self._structure_nodes

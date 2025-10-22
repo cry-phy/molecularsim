@@ -17,6 +17,7 @@ from molecsim.system.potentials import coulomb, lennard_jones
 from molecsim.utils.mc import metropolis
 from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_args, parse_com
+from molecsim.utils.plot import plot_system
 from molecsim.utils.rng import RNG
 
 import numpy as np
@@ -51,6 +52,8 @@ if __name__ == "__main__":
         print(f"\tContributor {name}: {cont}")
     print(f"For a total of {full}!")
 
+    plot_system(sim).show()
+
     steps = 100
 
     start = time.perf_counter_ns()
@@ -75,4 +78,4 @@ if __name__ == "__main__":
 
     end = time.perf_counter_ns()
 
-    print(f"Time per interation: {(end - start) / steps / 1e-6} ms")
+    print(f"Time per interation: {(end - start) / steps * 1e-6} ms")

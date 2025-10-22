@@ -32,7 +32,7 @@ class SystemData:
         self._charges: StructureArray | StructureView = np.zeros(n, dtype=FLOAT_DTYPE)
         self._atoms: npt.NDArray[INT_DTYPE] = np.zeros(n, dtype=INT_DTYPE)
         self._atom_str_to_int: dict[str, int] = {}
-        self._atom_int_to_str: npt.NDArray[np.object_] = np.empty(0, dtype=object)
+        self._atom_int_to_str: npt.NDArray[np.object_] = np.full(256, "NotFound")
 
         self._first_empty: int = 0
         self._start_index: int = 0
@@ -57,7 +57,10 @@ class SystemData:
             s2i, i2s = mapping
 
         instance._atom_str_to_int = s2i
-        instance._atom_int_to_str = i2s
+        np.copyto(
+            instance._atom_int_to_str[: len(i2s)],
+            i2s.astype(instance._atom_int_to_str.dtype),
+        )
 
         instance._atoms = np.fromiter((s2i[a] for a in atoms), dtype=INT_DTYPE, count=n)
 
@@ -73,11 +76,27 @@ class SystemData:
         instance._positions = self._positions[start:stop]
         instance._charges = self._charges[start:stop]
 
-        instance._atom_int_to_str = self._atom_int_to_str
+        instance._atom_int_to_str = self._atom_int_to_str.view()
         instance._atom_str_to_int = self._atom_str_to_int
 
         instance._start_index = start
         return instance
+
+    def _ensure_symbols(self, symbols: Iterable[str]) -> None:
+        s2i = self._atom_str_to_int
+        i2s = self._atom_int_to_str
+
+        unique_syms = list(dict.fromkeys(symbols))
+        for s in unique_syms:
+            if s in s2i:
+                continue
+            next_idx = len(s2i)
+            if next_idx >= i2s.size:
+                raise RuntimeError(
+                    "Atom type table capacity exceeded; enlarge _atom_int_to_str."
+                )
+            s2i[s] = next_idx
+            i2s[next_idx] = s
 
     def atom_ids_to_str(self, ids: npt.NDArray[INT_DTYPE]) -> npt.NDArray[np.object_]:
         """Fast conversion from ids to strings."""
@@ -85,6 +104,7 @@ class SystemData:
 
     def atom_str_to_ids(self, strings: Iterable[str]) -> npt.NDArray[INT_DTYPE]:
         """Fast conversion from strings to ids."""
+        self._ensure_symbols(strings)
         s2i = self._atom_str_to_int
         return np.fromiter((s2i[s] for s in strings), dtype=INT_DTYPE)
 
@@ -102,27 +122,47 @@ class SystemData:
         return new_data
 
     def copy_from(self, data: SystemData) -> None:
-        """Copy data from another system into this location.
+        """Copy from another SystemData, translating atom types and extending this mapping if needed."""
+        if (
+            self._atoms.shape != data._atoms.shape
+            or self._positions.shape != data._positions.shape
+            or self._charges.shape != data._charges.shape
+        ):
+            raise ValueError(
+                "copy_from: shape mismatch between destination view and source data"
+            )
 
-        Does not update id mappings!
-        """
-        if self._atom_int_to_str is data._atom_int_to_str:
-            raise ValueError("Mappings must be compatible.")
-        np.copyto(self._atoms, data._atoms)
-        np.copyto(self._positions, data._positions)
-        np.copyto(self._charges, data._charges)
+        # can skip if the instances are the same ie other is borrow of this data
+        if not (
+            np.shares_memory(self._atom_int_to_str, data._atom_int_to_str)
+            and self._atom_str_to_int is data._atom_str_to_int
+        ):
+            src_syms = data._atom_int_to_str[data._atoms]
+            self._ensure_symbols(src_syms)
+            dest_ids = np.fromiter(
+                (self._atom_str_to_int[s] for s in src_syms),
+                dtype=INT_DTYPE,
+                count=src_syms.shape[0],
+            )
+        else:
+            dest_ids = data.atoms
 
-    def deepcopy(self) -> SystemData:
-        """Generate copy."""
-        data = SystemData.as_owner(
-            self._atoms.copy(),
-            self._positions.copy(),
-            self._charges.copy(),
+        # Copy over
+        np.copyto(self._atoms, dest_ids, casting="no")
+        np.copyto(self._positions, data._positions, casting="no")
+        np.copyto(self._charges, data._charges, casting="no")
+
+    def copy_data(self) -> SystemData:
+        """Deep copy arrays; share the same symbol mapping tables."""
+        copy = SystemData.as_owner(
+            atoms=self.atoms_as_str(),
+            positions=self._positions.copy(),
+            charges=self._charges.copy(),
+            mapping=(self._atom_str_to_int, self._atom_int_to_str),
         )
-        data._start_index = (
-            self._start_index
-        )  # needed for masking dangerous!! TODO definitively
-        return data
+        copy._start_index = self._start_index
+        copy._first_empty = self._first_empty
+        return copy
 
     @property
     def positions(self):

@@ -9,6 +9,7 @@ from molecsim.system.data import (
     SystemData,
     SystemProperties,
 )
+from molecsim.system.molecule import Molecule
 
 if typing.TYPE_CHECKING:
     from molecsim.utils.rng import RNG
