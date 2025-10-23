@@ -8,9 +8,9 @@ Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](re
 
 ## Contributors
 
-Niklas Peter
+[Niklas Peter](mailto:niklas.peter@student.uibk.ac.at)
 
-Dmytro Lazykov
+[Dmytro Lazykov](mailte:dmytro.iazykov@student.uibk.ac.at)
 
 [Christof Stein](mailto:christof.stein@student.uibk.ac.at).
 
