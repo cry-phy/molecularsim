@@ -10,7 +10,7 @@ Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](re
 
 [Niklas Peter](mailto:niklas.peter@student.uibk.ac.at)
 
-[Dmytro Lazykov](mailto:dmytro.iazykov@student.uibk.ac.at)
+[Dmytro Iazykov](mailto:dmytro.iazykov@student.uibk.ac.at)
 
 [Christof Stein](mailto:christof.stein@student.uibk.ac.at).
 
