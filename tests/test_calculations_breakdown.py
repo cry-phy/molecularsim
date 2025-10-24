@@ -6,7 +6,6 @@ from molecsim.system.data import (
     make_potcall,
 )
 from molecsim.system.calculations import potential_breakdown, full_potential
-from tests.fixtures import simsys, lin_sum_x
 
 
 def test_breakdown_matches_sum_and_preserves_order(simsys, lin_sum_x):

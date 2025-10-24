@@ -6,7 +6,6 @@ from molecsim.system.data import (
     make_potcall,
 )
 from molecsim.system.calculations import full_potential
-from tests.fixtures import lin_sum_x, simsys
 
 
 def test_toggling_and_names_helpers_exist(simsys, lin_sum_x):

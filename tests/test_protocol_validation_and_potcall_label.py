@@ -7,11 +7,11 @@ from molecsim.system.data import (
     SystemForces,
 )
 from molecsim.system.calculations import full_potential
-from tests.fixtures import simsys, lin_sum_x
 
 
 def test_validate_contributor_requires_defaults_or_runtime_guard(simsys):
     """Test that validate_contributor requires defaults or runtime guard."""
+
     # 'bad' requires an extra arg 'z' without a default
     def bad(data, x, y, z):
         return 0.0
@@ -33,6 +33,7 @@ def test_validate_contributor_requires_defaults_or_runtime_guard(simsys):
 
 def test_make_potcall_freezes_kwargs_and_label():
     """Test that make_potcall freezes kwargs and label."""
+
     def lin(data: SystemData, bias: float = 0.0) -> float:
         return bias
 

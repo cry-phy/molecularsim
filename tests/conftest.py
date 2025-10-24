@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from molecsim.system.molecule import Molecule
 from molecsim.utils.rng import RNG
-from molecsim.system.data import SystemData, SystemProperties
+from molecsim.system.data import FLOAT_DTYPE, SystemData, SystemProperties
 from molecsim.system.system import SimSystem
 
 
@@ -14,10 +14,11 @@ def test_molecule() -> Molecule:
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
             [0.0, 1.0, 0.0],
-        ]
+        ],
+        dtype=FLOAT_DTYPE,
     )
     atoms = ["H", "O", "H"]
-    charges = np.array([1, 2, 1])
+    charges = np.array([1.0, 2.0, 1.0], dtype=FLOAT_DTYPE)
     data = SystemData.as_owner(atoms, positions, charges)
     mol = Molecule(data)
     return mol
@@ -33,7 +34,7 @@ def test_rng() -> RNG:
 def second_proto(test_molecule: Molecule) -> Molecule:
     """Independent copy shifted in x; ensures two distinct molecule types."""
     data2 = SystemData.as_owner(
-        test_molecule.data._atoms,
+        test_molecule.data.atoms_as_str(),
         test_molecule.data.positions + np.array([1.0, 0.0, 0.0]),
         test_molecule.data._charges,
     )
@@ -98,8 +99,9 @@ def simsys():
 
 
 @pytest.fixture
-def mock_props() -> SystemProperties:
+def mock_props(test_molecule: Molecule, second_proto: Molecule) -> SystemProperties:
     """Mock SystemProperties with LJ_A/B and coulomb_coeff set to 1."""
+
     class MockSystemProperties(SystemProperties):
         @property
         def lj_params(self):

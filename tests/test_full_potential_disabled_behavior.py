@@ -6,7 +6,6 @@ from molecsim.system.data import (
     make_potcall,
 )
 from molecsim.system.calculations import full_potential
-from tests.fixtures import lin_sum_x, simsys
 
 
 def test_full_potential_skips_disabled_by_default(simsys, lin_sum_x):

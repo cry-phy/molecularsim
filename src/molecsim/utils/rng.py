@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from molecsim.utils.geometry import rot_matrix_quaternions
+from molecsim.utils.geometry import rot_matrix_uniform
 
 
 class RNG:
@@ -17,10 +17,10 @@ class RNG:
         vec = self._rng.normal(0.0, 1.0, 3)
         return vec / np.linalg.norm(vec)
 
-    def rotation_matrix(self) -> npt.NDArray:
+    def rotation_matrix(self, magnitude: float) -> npt.NDArray:
         """Random rotation matrix uniformly distributed over SO(3)."""
         u1, u2, u3 = self._rng.random(3)
-        return rot_matrix_quaternions(u1, u2, u3)
+        return rot_matrix_uniform(u1, u2, u3, theta_max=magnitude)
 
     def random(self) -> float:
         """Generate random number in interval [0,1]."""

@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from molecsim.system.calculations import radial_distances
-from tests.fixtures import simsys
 
 
 def test_radial_distribution_function(simsys):
@@ -20,3 +19,4 @@ def test_radial_distribution_function(simsys):
     # Check that the RDF values are non-negative
     rdf_values = rdfs[("A", "B")]
     assert np.all(rdf_values >= 0)
+
