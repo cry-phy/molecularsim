@@ -5,7 +5,7 @@ Usage example (called from project root):
 python src/apps/calculate_between.py -f tests/data/water_zmatrix.com -n 2 -t 10 -b 10,10,10
 """
 
-from os import makedirs
+from abc import update_abstractmethods
 import os
 from pathlib import Path
 import time
@@ -59,9 +59,12 @@ if __name__ == "__main__":
         print(f"\tContributor {name}: {cont}")
     print(f"For a total of {full}!")
 
-    plot_system(sim).show()
+    fig, update = plot_system(sim)
+    fig.show()
+    # in case update is desired (only works in notebooks and streamlit apps!):
+    fig = update(sim)
 
-    steps = int(1e10)
+    steps = int(1e1)
     outdir = Path("out")
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -75,11 +78,33 @@ if __name__ == "__main__":
     function_coefficients = [0.5, 1]
     recent_acceptance = np.ones(len(mutation_functions))
     alpha = 1e-3
+    prev = sim.data.positions.copy()
+
     print(f"Now running system for: {steps} steps")
     for step in range(steps):
+        # propose a move
+        old_molecule, new_molecule, index = propose_new(
+            sim, mutation_functions, 1, function_coefficients, rng
+        )
+
+        # compute ΔE
+        old_contribution = calculate_potential(sim.data, old_molecule.data, forces)
+        new_contribution = calculate_potential(sim.data, new_molecule.data, forces)
+        diff = new_contribution - old_contribution
+
+        # accept/reject
+        decider = metropolis(sim.properties, diff, rng)
+        recent_acceptance[index] += alpha * (decider - recent_acceptance[index])
+
+        # apply & THEN update the plot
+        if decider:
+            old_molecule.copy_from(new_molecule.data)
+
+        # now visualize the *current* state
         if step % 1000 == 0:
             print(f"Step: {step}, recently {recent_acceptance}")
 
+        # checkpointing unchanged...
         now = time.perf_counter_ns()
         if (now - last_save) / 1e9 >= save_every_seconds:
             tag = f"{save_count:05d}"
@@ -91,22 +116,6 @@ if __name__ == "__main__":
             print(f"[checkpoint] saved {fname} at step {step}")
             save_count += 1
             last_save = now
-
-        old_molecule, new_molecule, index = propose_new(
-            sim, mutation_functions, 0.1, function_coefficients, rng
-        )
-
-        # should be wrapped like full_potential into molecule_potential
-        old_contribution = calculate_potential(sim.data, old_molecule.data, forces)
-        new_contribution = calculate_potential(sim.data, new_molecule.data, forces)
-
-        diff = new_contribution - old_contribution
-        decider = metropolis(sim.properties, diff, rng)
-
-        recent_acceptance[index] += alpha * (decider - recent_acceptance[index])
-
-        if decider:
-            old_molecule.copy_from(new_molecule.data)
 
     end = time.perf_counter_ns()
 

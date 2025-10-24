@@ -1,32 +1,49 @@
 from collections.abc import Callable, Sequence
-from molecsim.utils.geometry import contain_to_box
+from molecsim.system.data import SystemProperties
+from molecsim.utils.geometry import contain_to_box, rotate_rigid_pbc
 from molecsim.utils.rng import RNG
 from molecsim.system.molecule import Molecule
 from molecsim.system.system import SimSystem
+import numpy as np
 
-type MutateFunction = Callable[[Molecule, float, float, RNG], Molecule]
+type MutateFunction = Callable[
+    [Molecule, SystemProperties, float, float, RNG], Molecule
+]
 
 
 def mutate_translate(
-    molecule: Molecule, magnitude: float, coeff: float, rng: RNG
+    molecule: Molecule,
+    props: SystemProperties,
+    magnitude: float,
+    coeff: float,
+    rng: RNG,
 ) -> Molecule:
     """Mutate molecule by moving it."""
-    new_data = molecule.data.copy_data()
+    new_molecule = molecule.copy_data()
     shift = coeff * magnitude * rng.random() * rng.random_direction()
-    new_data.positions += shift
-    return Molecule(new_data)
+    new_molecule.data.positions += shift
+    return new_molecule
 
 
 def mutate_rotate(
-    molecule: Molecule, magnitude: float, coeff: float, rng: RNG
+    molecule: Molecule,
+    props: SystemProperties,
+    magnitude: float,
+    coeff: float,
+    rng: RNG,
 ) -> Molecule:
     """Mutate molecule by Rotation around Molecule.center."""
-    new_data = molecule.data.copy_data()
-    rel_positions = new_data.positions - molecule.center
-    new_data.positions = (
-        rel_positions @ rng.rotation_matrix(magnitude * coeff) + molecule.center
+    new = molecule.copy_data()
+    R = rng.rotation_matrix(magnitude * coeff)
+    pos = molecule.data.positions
+    box = props.box
+    rotated = (
+        rotate_rigid_pbc(pos, box, R, iref=0)
+        if props.periodic
+        else ((pos - molecule.center) @ R.T + molecule.center)
     )
-    return Molecule(new_data)
+    np.copyto(new.data.positions, rotated)
+    return new
 
 
 def propose_new(
@@ -35,16 +52,22 @@ def propose_new(
     magnitude: float,
     magnitude_coefficients: Sequence[float],
     rng: RNG,
-) -> tuple[Molecule, Molecule]:
+) -> tuple[Molecule, Molecule, int]:
     """Propose change in system based on change of one molecule.
 
-    Returns tuple[old, new].
+    Returns tuple[old, new, mut_fn_index].
     """
     molecule_index = rng.randint(len(system.molecules))
     mutation_function_index = rng.randint(len(mutation_functions))
     mutation_function_coeff = magnitude_coefficients[mutation_function_index]
     old_molecule = system.molecules[molecule_index]
     mutation_fn = mutation_functions[mutation_function_index]
-    new_molecule = mutation_fn(old_molecule, magnitude, mutation_function_coeff, rng)
+    new_molecule = mutation_fn(
+        old_molecule,
+        system.properties,
+        magnitude,
+        mutation_function_coeff,
+        rng,
+    )
     contain_to_box(new_molecule.data, system.properties)
     return old_molecule, new_molecule, mutation_function_index

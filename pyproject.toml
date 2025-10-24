@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "molecsim"
-version = "0.1.0"
+version = "0.2.0"
 description = "Molecular Monte Carlo Simulation"
 authors = [
   { name = "Christof Stein", email = "christof.stein@student.uibk.ac.at" },
@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "black>=24.0", "mypy>=1.10"]
+apps = ["streamlit"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

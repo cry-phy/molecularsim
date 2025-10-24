@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 
 
-from molecsim.system.data import SystemData, SystemProperties
+from molecsim.system.data import FLOAT_DTYPE, SystemData, SystemProperties
 from molecsim.system.molecule import Molecule
 from molecsim.system.system import SimSystem
 from molecsim.utils.geometry import BOUND_EPS
 from molecsim.utils.place import randomized_system
+from molecsim.utils.plot import plot_system
 from molecsim.utils.rng import RNG
-from tests.fixtures import props, second_proto, test_molecule, test_rng
 
 
 def pairwise_dists_mic(
@@ -48,12 +48,12 @@ def pairwise_dists(positions: np.ndarray):
     return np.linalg.norm(diff, axis=-1)
 
 
-def test_randomized_system_counts_and_views(props, test_rng):
+def test_randomized_system_counts_and_views(mock_props, test_rng):
     """Test that the randomized system has the correct counts and memory views."""
-    sys = randomized_system(props, test_rng, grid_function=_flex_dummy_grid)
+    sys = randomized_system(mock_props, test_rng, grid_function=_flex_dummy_grid)
     assert isinstance(sys, SimSystem)
-    total_mols = sum(props.molecules.values())
-    total_atoms = sum(m.size() * n for m, n in props.molecules.items())
+    total_mols = sum(mock_props.molecules.values())
+    total_atoms = sum(m.size() * n for m, n in mock_props.molecules.items())
     assert len(sys.molecules) == total_mols
     assert len(sys.data) == total_atoms
     assert np.shares_memory(sys.molecules[0].data.positions, sys.data.positions)
@@ -61,20 +61,24 @@ def test_randomized_system_counts_and_views(props, test_rng):
 
 def test_nonperiodic_is_rigidly_clamped_inside_box():
     """Test that non-periodic systems are rigidly clamped inside the box."""
+    from numpy.linalg import norm
+
+    def dmat(positions):
+        return norm(positions[:, None, :] - positions[None, :, :], axis=-1)
+
     mol = _proto()
+    print(dmat(mol.data.positions))
     box = np.array([2.0, 1.5, 1.0], dtype=float)
     props = SystemProperties(
         molecules={mol: 1}, box=box, temperature=300.0, periodic=False
     )
     rng = RNG(123)
     sys = randomized_system(props, rng)
-    pos = sys.data.positions
+    fig, _ = plot_system(sys)
+    fig.show()
+    pos = sys.data.positions.copy()
     assert np.all(pos >= -BOUND_EPS)
     assert np.all(pos <= box + BOUND_EPS)
-    from numpy.linalg import norm
-
-    def dmat(positions):
-        return norm(positions[:, None, :] - positions[None, :, :], axis=-1)
 
     np.testing.assert_allclose(
         dmat(pos), dmat(mol.data.positions), rtol=1e-12, atol=1e-12
@@ -134,8 +138,10 @@ def test_randomized_system_custom_grid_is_used(props, test_rng):
     def recorder(n, box, *args, **kwargs):
         calls["n"] = n
         calls["box"] = np.array(box, copy=True)
-        xs = np.arange(n, dtype=float)
-        return np.stack([xs, np.zeros(n), np.zeros(n)], axis=1)
+        xs = np.arange(n, dtype=FLOAT_DTYPE)
+        return np.stack(
+            [xs, np.zeros(n, dtype=FLOAT_DTYPE), np.zeros(n, dtype=FLOAT_DTYPE)], axis=1
+        )
 
     sys = randomized_system(props, test_rng, grid_function=recorder)
 

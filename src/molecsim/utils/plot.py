@@ -149,7 +149,7 @@ def plot_system(sim) -> tuple[go.Figure, Callable]:
         new_atoms = positions_to_atoms(
             new_sim.data.positions, new_sim.data.atoms_as_str()
         )
-        new_box = make_box_trace_from_lengths(new_sim.props.box)
+        new_box = make_box_trace_from_lengths(new_sim.properties.box)
 
         # In notebooks (FigureWidget) do in-place patch; otherwise replace data
         if hasattr(fig, "batch_update"):
@@ -381,7 +381,6 @@ def lines_to_sticks(
     zb[0::3] = lines[:, 0, 2]
     zb[1::3] = lines[:, 1, 2]
     zb[2::3] = np.nan
-    print(xb, yb, zb)
 
     return go.Scatter3d(
         x=xb,

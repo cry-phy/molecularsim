@@ -122,10 +122,10 @@ def contain_to_box(
         new_positions = wrap_periodic(
             data.positions, np.zeros_like(props.box), props.box
         )
-        data.positions = new_positions
     else:
         new_positions = hold_non_periodic(data.positions, props.box)
-        data.positions = new_positions
+
+    np.copyto(data.positions, new_positions)
 
 
 def wrap_periodic(x, a, b):
@@ -142,20 +142,34 @@ def hold_non_periodic(
     *,
     eps: float = 1e-9,
 ) -> StructureArray:
-    """Return positions moved into [0, box) without breaking rigidity."""
-    positions = np.asarray(positions)
-    box = np.asarray(box)
+    """Rigidly translate the molecule so all atoms lie in [0, box] (±eps).
+
+    Preserves pairwise distances.
+    """
+    positions = np.asarray(positions, dtype=float)
+    box = np.asarray(box, dtype=float)
+
     mins = positions.min(axis=0)
     maxs = positions.max(axis=0)
-    spans = maxs - mins
-    if np.any(spans > box + eps):
+    span = maxs - mins
+
+    if np.any(span > box + eps):
         raise ValueError(
             "Molecule extent exceeds non-periodic box along at least one axis."
         )
-    shift = -np.minimum(mins, 0.0)
-    overflow = np.maximum((maxs + shift) - box, 0.0)
-    shift -= overflow + eps
-    return positions + shift
+    lo = -mins + eps
+    hi = box - maxs - eps
+    if np.any(lo > hi + 1e-15):
+        raise ValueError("No feasible rigid shift to place molecule inside box.")
+    shift = np.clip(0.0, lo, hi)
+    new_pos = positions + shift
+    print(
+        shift,
+        positions,
+        np.linalg.norm(positions[:, None, :] - positions[None, :, :], axis=-1),
+        np.linalg.norm(new_pos[:, None, :] - new_pos[None, :, :], axis=-1),
+    )
+    return new_pos
 
 
 def fuzzyfy(
@@ -170,3 +184,41 @@ def fuzzyfy(
     fuzz = rng.random_like(positions, limit=float(strength * position_radius))
     proposal = fuzz + positions
     return wrap_periodic(proposal, 0, box)
+
+
+def unwrap_to_reference(
+    pos: npt.NDArray[np.floating], box: npt.NDArray[np.floating], iref: int = 0
+) -> npt.NDArray[np.floating]:
+    """Place all atoms in the nearest image relative to atom iref."""
+    pos = np.asarray(pos, float)
+    box = np.asarray(box, float)
+    ref = pos[iref]
+    diff = pos - ref  # pairwise to reference
+    diff -= box * np.round(diff / box)  # minimum-image to reference
+    return ref + diff
+
+
+def rotate_rigid_pbc(
+    pos: npt.NDArray[np.floating],
+    box: npt.NDArray[np.floating],
+    R: npt.NDArray[np.floating],
+    iref: int = 0,
+) -> npt.NDArray[np.floating]:
+    """Rigidly rotate a molecule across PBC and rewrap with a single lattice shift."""
+    u = unwrap_to_reference(pos, box, iref=iref)
+
+    c = u.mean(axis=0)
+    ru = (u - c) @ R.T + c
+
+    shift = -box * np.floor(ru[iref] / box)
+    rw = ru + shift
+
+    return rw
+
+
+def dmat_min_image(
+    pos: npt.NDArray[np.floating], box: npt.NDArray[np.floating]
+) -> npt.NDArray[np.floating]:
+    diff = pos[:, None, :] - pos[None, :, :]
+    diff -= box * np.round(diff / box)
+    return np.linalg.norm(diff, axis=-1)

@@ -61,7 +61,6 @@ class SystemData:
             instance._atom_int_to_str[: len(i2s)],
             i2s.astype(instance._atom_int_to_str.dtype),
         )
-
         instance._atoms = np.fromiter((s2i[a] for a in atoms), dtype=INT_DTYPE, count=n)
 
         instance._positions = positions.copy()
@@ -258,7 +257,7 @@ class SystemProperties:
     @property
     def box(self):
         """The box property."""
-        return self._boxPrope
+        return self._box
 
     @property
     def molecules(self) -> dict[Molecule, int]:

@@ -3,7 +3,6 @@ import pytest
 
 from molecsim.system.data import SystemData, SystemProperties
 from molecsim.system.potentials import coulomb, lennard_jones
-from tests.fixtures import mock_props
 
 
 def test_coulomb_single_molecule(mock_props):
