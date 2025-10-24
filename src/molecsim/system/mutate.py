@@ -4,23 +4,27 @@ from molecsim.utils.rng import RNG
 from molecsim.system.molecule import Molecule
 from molecsim.system.system import SimSystem
 
-type MutateFunction = Callable[[Molecule, float, RNG], Molecule]
+type MutateFunction = Callable[[Molecule, float, float, RNG], Molecule]
 
 
-def mutate_translate(molecule: Molecule, magnitude: float, rng: RNG) -> Molecule:
+def mutate_translate(
+    molecule: Molecule, magnitude: float, coeff: float, rng: RNG
+) -> Molecule:
     """Mutate molecule by moving it."""
     new_data = molecule.data.copy_data()
-    shift = magnitude * rng.random() * rng.random_direction() / 10
+    shift = coeff * magnitude * rng.random() * rng.random_direction()
     new_data.positions += shift
     return Molecule(new_data)
 
 
-def mutate_rotate(molecule: Molecule, magnitude: float, rng: RNG) -> Molecule:
+def mutate_rotate(
+    molecule: Molecule, magnitude: float, coeff: float, rng: RNG
+) -> Molecule:
     """Mutate molecule by Rotation around Molecule.center."""
     new_data = molecule.data.copy_data()
     rel_positions = new_data.positions - molecule.center
     new_data.positions = (
-        rel_positions @ rng.rotation_matrix(magnitude) + molecule.center
+        rel_positions @ rng.rotation_matrix(magnitude * coeff) + molecule.center
     )
     return Molecule(new_data)
 
@@ -29,6 +33,7 @@ def propose_new(
     system: SimSystem,
     mutation_functions: Sequence[MutateFunction],
     magnitude: float,
+    magnitude_coefficients: Sequence[float],
     rng: RNG,
 ) -> tuple[Molecule, Molecule]:
     """Propose change in system based on change of one molecule.
@@ -37,8 +42,9 @@ def propose_new(
     """
     molecule_index = rng.randint(len(system.molecules))
     mutation_function_index = rng.randint(len(mutation_functions))
+    mutation_function_coeff = magnitude_coefficients[mutation_function_index]
     old_molecule = system.molecules[molecule_index]
     mutation_fn = mutation_functions[mutation_function_index]
-    new_molecule = mutation_fn(old_molecule, magnitude, rng)
+    new_molecule = mutation_fn(old_molecule, magnitude, mutation_function_coeff, rng)
     contain_to_box(new_molecule.data, system.properties)
-    return old_molecule, new_molecule
+    return old_molecule, new_molecule, mutation_function_index

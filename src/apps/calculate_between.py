@@ -65,14 +65,15 @@ if __name__ == "__main__":
     outdir = Path("out")
     outdir.mkdir(parents=True, exist_ok=True)
 
-    save_every_seconds = 60  # 600  # 10 minutes
+    save_every_seconds = 60
     save_count = 1
 
     start = time.perf_counter_ns()
     last_save = start
 
     mutation_functions = [mutate_rotate, mutate_translate]
-    recent_acceptance = 1
+    function_coefficients = [0.5, 1]
+    recent_acceptance = np.ones(len(mutation_functions))
     alpha = 1e-3
     print(f"Now running system for: {steps} steps")
     for step in range(steps):
@@ -81,7 +82,7 @@ if __name__ == "__main__":
 
         now = time.perf_counter_ns()
         if (now - last_save) / 1e9 >= save_every_seconds:
-            tag = f"{save_count:05d}"  # 00001..10000
+            tag = f"{save_count:05d}"
             fname_tmp = outdir / f"state_{tag}.pickle.tmp"
             fname = outdir / f"state_{tag}.pickle"
             with open(fname_tmp, "wb") as f:
@@ -90,7 +91,10 @@ if __name__ == "__main__":
             print(f"[checkpoint] saved {fname} at step {step}")
             save_count += 1
             last_save = now
-        old_molecule, new_molecule = propose_new(sim, mutation_functions, 0.1, rng)
+
+        old_molecule, new_molecule, index = propose_new(
+            sim, mutation_functions, 0.1, function_coefficients, rng
+        )
 
         # should be wrapped like full_potential into molecule_potential
         old_contribution = calculate_potential(sim.data, old_molecule.data, forces)
@@ -99,7 +103,7 @@ if __name__ == "__main__":
         diff = new_contribution - old_contribution
         decider = metropolis(sim.properties, diff, rng)
 
-        recent_acceptance += alpha * (decider - recent_acceptance)
+        recent_acceptance[index] += alpha * (decider - recent_acceptance[index])
 
         if decider:
             old_molecule.copy_from(new_molecule.data)

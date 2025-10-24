@@ -258,7 +258,7 @@ class SystemProperties:
     @property
     def box(self):
         """The box property."""
-        return self._box
+        return self._boxPrope
 
     @property
     def molecules(self) -> dict[Molecule, int]:
