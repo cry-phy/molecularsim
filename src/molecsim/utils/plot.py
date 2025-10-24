@@ -6,12 +6,14 @@ import numpy as np
 import numpy.typing as npt
 import plotly.graph_objects as go
 
-from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, StructureArray
+from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, StructureArray, SystemData
 from molecsim.system.molecule import Molecule
 
 import os
 import sys
 import plotly.io as pio
+
+from molecsim.system.system import SimSystem
 
 _PLOTLY_INIT_DONE = False
 
@@ -119,12 +121,12 @@ def color_for(elem: str | Iterable[str]) -> str | list[str]:
     return out
 
 
-def plot_system(sim) -> tuple[go.Figure, Callable]:
+def plot_system(sim: SimSystem) -> tuple[go.Figure, Callable[[SystemData], go.Figure]]:
     """Return (figure, update_fn). FigureWidget in notebooks, Figure otherwise."""
     _ensure_renderer_once()
     FigureT = _figure_class()
 
-    sticks = lines_to_sticks(extract_bonds(sim.molecules))
+    sticks = lines_to_sticks(extract_bonds(sim.molecules, sim.properties.box))
     atoms = positions_to_atoms(sim.data.positions, sim.data.atoms_as_str())
     box = make_box_trace_from_lengths(sim.properties.box)
 
@@ -145,7 +147,9 @@ def plot_system(sim) -> tuple[go.Figure, Callable]:
     fig.update_scenes(camera=dict(eye=dict(x=1.6, y=1.6, z=1.2)))
 
     def update(new_sim):
-        new_sticks = lines_to_sticks(extract_bonds(new_sim.molecules))
+        new_sticks = lines_to_sticks(
+            extract_bonds(new_sim.molecules, new_sim.properties.box)
+        )
         new_atoms = positions_to_atoms(
             new_sim.data.positions, new_sim.data.atoms_as_str()
         )
@@ -444,11 +448,13 @@ def make_box_trace_from_lengths(
     )
 
 
-def extract_bonds(molecules: Sequence[Molecule]) -> StructureArray:
-    """Extract all bonds from a list of molecules at once. Returns (n,2,3)."""
+def extract_bonds(molecules: Sequence[Molecule], box: StructureArray) -> StructureArray:
+    """Extract all bonds from a list of molecules at once using MIC (orthorhombic). Returns (n,2,3)."""
+    if not molecules:
+        return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)
     parts: list[StructureArray] = []
-    for molec in molecules:
-        segs = extract_molecule_bonds(molec)
+    for mol in molecules:
+        segs = extract_molecule_bonds(mol, box)
         if segs.size:
             parts.append(segs)
     if not parts:
@@ -456,20 +462,35 @@ def extract_bonds(molecules: Sequence[Molecule]) -> StructureArray:
     return np.concatenate(parts, axis=0)
 
 
-def extract_molecule_bonds(molecule: Molecule) -> StructureArray:
-    """Extract bonds as segments between two points. Returns (n, 2, 3)."""
+def extract_molecule_bonds(molecule: Molecule, box: StructureArray) -> StructureArray:
+    """Extract bonds as minimum-image segments between two points. Returns (n_bonds, 2, 3)."""
     if molecule.structure_nodes is None:
         return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)
+
+    def mic_delta(
+        p0: npt.NDArray[FloatPrecision], p1: npt.NDArray[FloatPrecision]
+    ) -> npt.NDArray[FloatPrecision]:
+        d = p1 - p0
+        d = d - box * np.round(d / box)
+        return d.astype(FLOAT_DTYPE, copy=False)
 
     lines_points: list[
         tuple[npt.NDArray[FloatPrecision], npt.NDArray[FloatPrecision]]
     ] = []
+    seen: set[tuple[int, int]] = set()
+    pos = molecule.data.positions
+
     for node in molecule.structure_nodes:
         i = node.molecular_index
-        p0 = molecule.data.positions[i]
+        p0 = pos[i]
         for nb in node.neighbors:
             j = nb.molecular_index
-            lines_points.append((p0, molecule.data.positions[j]))
+            a, b = (i, j) if i < j else (j, i)
+            if (a, b) in seen:
+                continue
+            seen.add((a, b))
+            d = mic_delta(p0, pos[j])
+            lines_points.append((p0, p0 + d))
 
     if not lines_points:
         return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)

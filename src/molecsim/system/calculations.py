@@ -94,6 +94,15 @@ def calculate_potential(
     return total
 
 
+def all_rdfs(
+    sim: SimSystem, num_bins: int
+) -> tuple[StructureArray, dict[tuple[str, str], npt.NDArray[INT_DTYPE]]]:
+    """Generate all RDFs for a system."""
+    return radial_distances(
+        sim.data, sim.data.symbols, sim.data.symbols, sim.properties, num_bins
+    )
+
+
 def radial_distances(
     data: SystemData,
     atoms_a: Iterable[str],

@@ -26,22 +26,7 @@ def randomized_system(
     molecules = []
     for molec_sample, fuzzy_node in zip(molecule_types, fuzzy_nodes, strict=True):
         molecule_slice = data.allocate_molecule(molec_sample.size())
-        print(
-            "before",
-            np.linalg.norm(
-                molec_sample.data.positions[:, None, :]
-                - molec_sample.data.positions[None, :, :],
-                axis=-1,
-            ),
-        )
         rotated = mutate_rotate(molec_sample, properties, 1, 1, rng)
-        print(
-            "after",
-            np.linalg.norm(
-                rotated.data.positions[:, None, :] - rotated.data.positions[None, :, :],
-                axis=-1,
-            ),
-        )
         rotated.data.positions += fuzzy_node
         contain_to_box(rotated.data, properties)
         rotated.move_to(molecule_slice)
