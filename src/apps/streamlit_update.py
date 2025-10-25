@@ -1,4 +1,5 @@
-"""App allowing for live tracking of the system via Streamlit app.
+"""
+App allowing for live tracking of the system via Streamlit app.
 
 To run need to install streamlit in addition to the molecsim package.
 
@@ -24,28 +25,13 @@ from typing import Any, Callable, Sequence, Tuple
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh  # <-- always use plugin
 
 # Attach Streamlit run context to threads (if available)
 try:
     from streamlit.runtime.scriptrunner import add_script_run_ctx  # Streamlit >=1.18
 except Exception:
     add_script_run_ctx = None  # best-effort fallback
-
-# Optional autorefresh (pip install streamlit-autorefresh)
-try:
-    from streamlit_autorefresh import st_autorefresh
-
-    def trigger_autorefresh(interval_ms: int) -> None:
-        st_autorefresh(interval=interval_ms, key="__auto_refresh__")
-except Exception:
-
-    def trigger_autorefresh(interval_ms: int) -> None:
-        # Minimal fallback: throttle st.rerun() to at most once per interval
-        now = time.perf_counter()
-        last = st.session_state.get("__last_refresh_s__", 0.0)
-        if now - last >= interval_ms / 1000.0:
-            st.session_state["__last_refresh_s__"] = now
-            st.rerun()
 
 
 # ---- Your project imports (from the CLI example) ----
@@ -148,12 +134,10 @@ def ensure_state() -> None:
     st.session_state.fig: go.Figure | None = None
     st.session_state.update_fig: Callable[[Any], go.Figure | None] | None = None
     st.session_state.scene_camera: dict | None = None
-    st.session_state.apply_camera_next: bool = (
-        False  # apply cached camera only when fig object changes
-    )
+    st.session_state.apply_camera_next: bool = False
 
     # UI cadence
-    st.session_state.redraw_interval_s = 0.5
+    st.session_state.redraw_interval_s = 5.0  # seconds
 
     # Worker
     st.session_state.worker_running = False
@@ -193,11 +177,10 @@ def worker_loop() -> None:
                 muts = st.session_state.mutation_functions
                 coeffs = st.session_state.function_coefficients
                 ema = st.session_state.recent_acceptance
-                alpha = float(st.session_state.alphaThe widget with key "worker_batch" was created with a default value but also had its value set via the Session State API.)
+                alpha = float(st.session_state.alpha)
                 stats = st.session_state.stats
 
                 if sim is None or forces is None or rng is None:
-                    # Not fully initialized
                     time.sleep(0.01)
                     continue
 
@@ -241,8 +224,10 @@ def stop_worker() -> None:
 
 
 def apply_plot_persistence(fig: go.Figure) -> None:
-    # keep user interactions across updates
-    fig.update_layout(uirevision="persist")
+    # Keep user interactions (camera/zoom) across data updates & reruns
+    fig.update_layout(uirevision="molmc")  # global
+    if hasattr(fig.layout, "scene") and fig.layout.scene is not None:
+        fig.layout.scene.uirevision = "molmc"
 
 
 def update_and_render(plot_area) -> None:
@@ -265,8 +250,13 @@ def update_and_render(plot_area) -> None:
 
     apply_plot_persistence(fig)
 
-    # IMPORTANT: No key is passed, and we call plotly_chart only once per rerun.
-    plot_area.plotly_chart(fig, use_container_width=True)
+    # IMPORTANT: No explicit key; render exactly once per rerun.
+    plot_area.plotly_chart(
+        fig,
+        use_container_width=True,
+        key="__main_plot__",  # stable element identity across reruns
+        config={"scrollZoom": True},  # optional: keep scroll-to-zoom enabled
+    )
 
     # Cache camera AFTER render so future NEW figures can inherit it
     try:
@@ -289,20 +279,18 @@ plot_area = st.empty()
 
 with st.sidebar:
     st.header("Display")
-    st.session_state.redraw_interval_s = st.number_input(
+    st.number_input(
         "Redraw every (seconds)",
         min_value=0.05,
         max_value=10.0,
         step=0.05,
-        value=float(st.session_state.redraw_interval_s),
+        key="redraw_interval_s",  # use key, no explicit value
         help="UI reruns only at this cadence; compute runs continuously in background.",
     )
 
     st.divider()
     st.header("Autoplay (background)")
-    st.caption(
-        "Compute runs in a background thread; the UI only refreshes every N seconds."
-    )
+    st.caption("Compute runs in a background thread; UI refresh is timer-driven.")
     c1, c2 = st.columns(2)
     with c1:
         if st.button("Start", use_container_width=True, type="primary"):
@@ -315,19 +303,18 @@ with st.sidebar:
         min_value=1,
         max_value=100000,
         step=100,
-        value=int(st.session_state.worker_batch),
-        key="worker_batch",
+        key="worker_batch",  # use key, no explicit value
         help="Higher = more steps per background cycle.",
     )
 
     st.divider()
     st.header("Manual stepping")
-    st.session_state.manual_steps = st.number_input(
+    st.number_input(
         "Steps per redraw (manual)",
         min_value=1,
         max_value=1_000_000,
         step=50,
-        value=int(st.session_state.manual_steps),
+        key="manual_steps",  # use key, no explicit value
         help="When not using autoplay, run this many steps then redraw once.",
     )
     if st.button("Run steps, then redraw", use_container_width=True):
@@ -344,13 +331,15 @@ with st.sidebar:
                         float(st.session_state.alpha),
                         st.session_state.stats,
                     )
-        # No render here — centralized render happens once, at the end of the script.
+        # Rendering happens once at the bottom of the script.
 
     st.divider()
     st.header("Initialize / Load")
 
     st.subheader("Build system from Gaussian inputs")
-    files_text = st.text_input("Files (.com/.gjf, comma-separated)", value="resources/h2o.com")
+    files_text = st.text_input(
+        "Files (.com/.gjf, comma-separated)", value="resources/h2o.com"
+    )
     numbers_text = st.text_input("Counts (integers, comma-separated)", value="10")
     box_text = st.text_input("Box (Å, 'Lx,Ly,Lz')", value="30,30,30")
     temperature = st.number_input("Temperature (K)", min_value=0.0, value=298.15)
@@ -461,6 +450,9 @@ st.markdown(
     f"**Rate:** {rate:.3f}"
 )
 
-# Autoplay UI refresh — ONLY every N seconds
+# ---------- Non-blocking, browser-driven rerun via plugin ----------
 if st.session_state.worker_running and st.session_state.initialized:
-    trigger_autorefresh(int(st.session_state.redraw_interval_s * 1000))
+    st_autorefresh(
+        interval=int(float(st.session_state.redraw_interval_s) * 1000),
+        key="__auto_refresh__",
+    )

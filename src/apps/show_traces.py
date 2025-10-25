@@ -1,44 +1,57 @@
-import numpy as np
-from molecsim.utils import RNG
+"""Interactive debug viewer.
 
-from molecsim.system.data import SystemData
-from molecsim.system.molecule import Molecule
+python src/apps/debug_viewer.py \
+  -f tests/data/water_zmatrix.com \
+  -n 5 \
+  -t 10 \
+  -b 10,10,10 \
+  --seed 1
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+import numpy as np
+
+from molecsim.utils.parsers import parse_args, parse_com
+from molecsim.utils.rng import RNG
 from molecsim.utils.place import randomized_system
 from molecsim.utils.plot import add_periodic_debug_traces, plot_system
-import plotly.graph_objects as go
+from molecsim.system.data import SystemProperties
 
 
-class DotDict(dict):
-    __getattr__ = dict.get
+def main() -> None:
+    args = parse_args()
 
-    def __setattr__(self, k, v):
-        self[k] = v
+    # Optional extras (robust even if not yet added to parse_args)
+    seed = getattr(args, "seed", 1)
+    add_traces = not getattr(args, "no_debug_traces", False)
 
-    def __delattr__(self, k):
-        del self[k]
+    # Build prototype -> count mapping from parsed args
+    molecule_list = {
+        parse_com(path): n for path, n in zip(args.files, args.numbers, strict=True)
+    }
+
+    # Temporary charge hack to mirror earlier behavior (remove when charge IO is implemented)
+    first_proto = next(iter(molecule_list))
+    first_proto.data.charges = np.array([-2, 1, 1])
+
+    rng = RNG(seed)
+
+    props = SystemProperties(
+        molecule_list=molecule_list,
+        box=np.asarray(args.box, dtype=float),
+        temperature=args.temperature,
+    )
+
+    sim = randomized_system(props, rng)
+
+    fig, _update = plot_system(sim)
+    if add_traces:
+        fig = add_periodic_debug_traces(fig, sim)
+
+    fig.show()
 
 
-data = SystemData.as_owner(
-    ["H"], np.array([0.0, 0.0, 0.0]).reshape((1, 3)), np.array([1.0])
-)
-molec = Molecule(data)
-molec_dict = {molec: 5}
-
-custom_props = DotDict(
-    temperature=10,
-    box=np.array([10, 10, 10]),
-    molecules=molec_dict,
-    lj_params=(1, 1),
-    coulomb_coeff=1,
-    heat_energy=1,
-)
-
-rng = RNG(1)
-
-sim = randomized_system(custom_props, rng)
-
-fig, update = plot_system(sim)
-
-fig = add_periodic_debug_traces(fig, sim)
-
-fig.show()
+if __name__ == "__main__":
+    main()
