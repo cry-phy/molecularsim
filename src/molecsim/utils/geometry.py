@@ -163,12 +163,6 @@ def hold_non_periodic(
         raise ValueError("No feasible rigid shift to place molecule inside box.")
     shift = np.clip(0.0, lo, hi)
     new_pos = positions + shift
-    print(
-        shift,
-        positions,
-        np.linalg.norm(positions[:, None, :] - positions[None, :, :], axis=-1),
-        np.linalg.norm(new_pos[:, None, :] - new_pos[None, :, :], axis=-1),
-    )
     return new_pos
 
 

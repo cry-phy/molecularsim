@@ -6,12 +6,14 @@ import numpy as np
 import numpy.typing as npt
 import plotly.graph_objects as go
 
-from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, StructureArray
+from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, StructureArray, SystemData
 from molecsim.system.molecule import Molecule
 
 import os
 import sys
 import plotly.io as pio
+
+from molecsim.system.system import SimSystem
 
 _PLOTLY_INIT_DONE = False
 
@@ -119,12 +121,13 @@ def color_for(elem: str | Iterable[str]) -> str | list[str]:
     return out
 
 
-def plot_system(sim) -> tuple[go.Figure, Callable]:
-    """Return (figure, update_fn). FigureWidget in notebooks, Figure otherwise."""
+def plot_system(sim: SimSystem) -> tuple[go.Figure, Callable[[SimSystem], go.Figure]]:
+    """Return (figure, update_fn). Keeps view state persistent across updates."""
     _ensure_renderer_once()
     FigureT = _figure_class()
 
-    sticks = lines_to_sticks(extract_bonds(sim.molecules))
+    # build initial traces once
+    sticks = lines_to_sticks(extract_bonds(sim.molecules, sim.properties.box))
     atoms = positions_to_atoms(sim.data.positions, sim.data.atoms_as_str())
     box = make_box_trace_from_lengths(sim.properties.box)
 
@@ -141,38 +144,65 @@ def plot_system(sim) -> tuple[go.Figure, Callable]:
         scene=dict(
             xaxis=invis, yaxis=invis, zaxis=invis, aspectmode="data", bgcolor=dark
         ),
+        uirevision="molmc",
     )
     fig.update_scenes(camera=dict(eye=dict(x=1.6, y=1.6, z=1.2)))
 
-    def update(new_sim):
-        new_sticks = lines_to_sticks(extract_bonds(new_sim.molecules))
-        new_atoms = positions_to_atoms(
-            new_sim.data.positions, new_sim.data.atoms_as_str()
-        )
-        new_box = make_box_trace_from_lengths(new_sim.properties.box)
+    STICKS_I, ATOMS_I, BOX_I = 0, 1, 2
 
-        # In notebooks (FigureWidget) do in-place patch; otherwise replace data
-        if hasattr(fig, "batch_update"):
-            with fig.batch_update():
-                fig.data[0].update(
-                    x=new_sticks.x,
-                    y=new_sticks.y,
-                    z=new_sticks.z,
-                    line=new_sticks.line,
-                    mode=new_sticks.mode,
-                )
-                fig.data[1].update(
-                    x=new_atoms.x,
-                    y=new_atoms.y,
-                    z=new_atoms.z,
-                    marker=new_atoms.marker,
-                    mode=new_atoms.mode,
-                )
-                fig.data[2].update(x=new_box.x, y=new_box.y, z=new_box.z)
-                fig.layout.title = getattr(new_sim, "name", None) or "System"
+    def update(new_sim):
+        # recompute geometry
+        new_sticks = extract_bonds(new_sim.molecules, new_sim.properties.box)
+        new_atoms_pos = np.asarray(new_sim.data.positions)
+        new_box_trace = make_box_trace_from_lengths(new_sim.properties.box)
+
+        # convert to flat coords for sticks
+        if new_sticks.size == 0:
+            xs, ys, zs = [], [], []
         else:
-            fig.data = (new_sticks, new_atoms, new_box)
-            fig.update_layout(title=getattr(new_sim, "name", None) or "System")
+            n = new_sticks.shape[0]
+            xs = np.empty(3 * n, dtype=new_sticks.dtype)
+            ys = np.empty(3 * n, dtype=new_sticks.dtype)
+            zs = np.empty(3 * n, dtype=new_sticks.dtype)
+            xs[0::3] = new_sticks[:, 0, 0]
+            xs[1::3] = new_sticks[:, 1, 0]
+            xs[2::3] = np.nan
+            ys[0::3] = new_sticks[:, 0, 1]
+            ys[1::3] = new_sticks[:, 1, 1]
+            ys[2::3] = np.nan
+            zs[0::3] = new_sticks[:, 0, 2]
+            zs[1::3] = new_sticks[:, 1, 2]
+            zs[2::3] = np.nan
+
+        # mutate traces IN PLACE (do not replace fig.data tuple)
+        if hasattr(fig, "batch_update"):
+            ctx = fig.batch_update()
+        else:
+            # dummy context manager
+            from contextlib import nullcontext
+
+            ctx = nullcontext()
+
+        with ctx:
+            # sticks
+            fig.data[STICKS_I].x = xs
+            fig.data[STICKS_I].y = ys
+            fig.data[STICKS_I].z = zs
+
+            # atoms
+            fig.data[ATOMS_I].x = new_atoms_pos[:, 0]
+            fig.data[ATOMS_I].y = new_atoms_pos[:, 1]
+            fig.data[ATOMS_I].z = new_atoms_pos[:, 2]
+            # (no marker/style changes -> less chance to reset view)
+
+            # box
+            fig.data[BOX_I].x = new_box_trace.x
+            fig.data[BOX_I].y = new_box_trace.y
+            fig.data[BOX_I].z = new_box_trace.z
+
+            # title text only (doesn't affect camera with uirevision set)
+            fig.layout.title = getattr(new_sim, "name", None) or "System"
+
         return fig
 
     return fig, update
@@ -444,11 +474,13 @@ def make_box_trace_from_lengths(
     )
 
 
-def extract_bonds(molecules: Sequence[Molecule]) -> StructureArray:
-    """Extract all bonds from a list of molecules at once. Returns (n,2,3)."""
+def extract_bonds(molecules: Sequence[Molecule], box: StructureArray) -> StructureArray:
+    """Extract all bonds from a list of molecules at once using MIC (orthorhombic). Returns (n,2,3)."""
+    if not molecules:
+        return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)
     parts: list[StructureArray] = []
-    for molec in molecules:
-        segs = extract_molecule_bonds(molec)
+    for mol in molecules:
+        segs = extract_molecule_bonds(mol, box)
         if segs.size:
             parts.append(segs)
     if not parts:
@@ -456,20 +488,35 @@ def extract_bonds(molecules: Sequence[Molecule]) -> StructureArray:
     return np.concatenate(parts, axis=0)
 
 
-def extract_molecule_bonds(molecule: Molecule) -> StructureArray:
-    """Extract bonds as segments between two points. Returns (n, 2, 3)."""
+def extract_molecule_bonds(molecule: Molecule, box: StructureArray) -> StructureArray:
+    """Extract bonds as minimum-image segments between two points. Returns (n_bonds, 2, 3)."""
     if molecule.structure_nodes is None:
         return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)
+
+    def mic_delta(
+        p0: npt.NDArray[FloatPrecision], p1: npt.NDArray[FloatPrecision]
+    ) -> npt.NDArray[FloatPrecision]:
+        d = p1 - p0
+        d = d - box * np.round(d / box)
+        return d.astype(FLOAT_DTYPE, copy=False)
 
     lines_points: list[
         tuple[npt.NDArray[FloatPrecision], npt.NDArray[FloatPrecision]]
     ] = []
+    seen: set[tuple[int, int]] = set()
+    pos = molecule.data.positions
+
     for node in molecule.structure_nodes:
         i = node.molecular_index
-        p0 = molecule.data.positions[i]
+        p0 = pos[i]
         for nb in node.neighbors:
             j = nb.molecular_index
-            lines_points.append((p0, molecule.data.positions[j]))
+            a, b = (i, j) if i < j else (j, i)
+            if (a, b) in seen:
+                continue
+            seen.add((a, b))
+            d = mic_delta(p0, pos[j])
+            lines_points.append((p0, p0 + d))
 
     if not lines_points:
         return np.empty((0, 2, 3), dtype=FLOAT_DTYPE)

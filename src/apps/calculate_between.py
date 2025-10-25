@@ -31,9 +31,6 @@ if __name__ == "__main__":
     molecule_list = {
         parse_com(path): n for path, n in zip(args.files, args.numbers, strict=True)
     }
-    # Hack until implementing charge loading from gaussian outputs
-    prop_h20 = list(molecule_list.keys())[0]
-    prop_h20.data.charges = np.array([-2, 1, 1])
 
     rng = RNG(10)  # Ensure RNG is seeded
     box = np.asarray(args.box)

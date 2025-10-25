@@ -25,10 +25,54 @@ pip install -e .[dev]
 
 Calculations will be run using apps stored in the [src/apps](src/apps) directory. 
 
-Currently only a small [showcase applet](src/apps/calculate_between.py) exists to show force calculations working. It can be called from the project root using example data by calling:
+The following apps are implemented:
+
+### Streamlit Webapp
+
+Main interaction is done via [streamlit webapp](src/apps/streamlit_update.py) bunling the interactions into a nice interface.
+
+This requires installing the app dependencies:
 
 ```bash
-python src/apps/calculate_between.py -f tests/data/water_zmatrix.com -n 2 -t 10 -b 10,10,10
+pip install .[apps]
 ```
 
-This simply generaates a system of n=2 molecules and runs potential calculations for this system.
+but provides UI in browser via:
+
+```bash
+streamlit run src/apps/streamlit_update.py
+```
+
+### Headless mode
+
+[Headless Execution](src/apps/headless.py) is used to presimulate specific data for further study. In essence it is used to prepare systems into equilibrium states for macroscopic parameter extraction.
+
+```bash
+python src/apps/run_headless.py \
+    -f tests/data/water_zmatrix.com \
+    -n 2 \
+    -t 10 \
+    -b 10,10,10 \
+    -s 10000 \
+    -o out/state_final.pickle \
+    --seed 10
+```
+
+### Debug view
+
+Distance calculations using minimum image convention can be inspected in [debug app](src/apps/headless.py):
+
+
+### Showcase App
+
+Currently a small [showcase applet](src/apps/calculate_between.py) exists to show how interaction with the module might work. It can be called:
+
+```bash
+python src/apps/debug_viewer.py \
+  -f tests/data/water_zmatrix.com \
+  -n 5 \
+  -t 10 \
+  -b 10,10,10 \
+  --seed 1
+```
+

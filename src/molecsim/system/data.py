@@ -203,6 +203,10 @@ class SystemData:
         """Return start and end index of data in owner of data."""
         return self._start_index, self._start_index + self.__len__()
 
+    @property
+    def symbols(self):
+        return self._atom_int_to_str.copy()
+
 
 class StructureNode:
     """Node in the Structure Tree."""
