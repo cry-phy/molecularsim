@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from molecsim.data.molecule import Molecule
 from molecsim.data.properties import SystemProperties
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 from molecsim.data.data import FLOAT_DTYPE, SystemData
 from molecsim.data.system import SimSystem
 

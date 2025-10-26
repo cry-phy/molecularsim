@@ -6,7 +6,7 @@ import numpy as np
 import typing
 
 if typing.TYPE_CHECKING:
-    from molecsim.utils.rng import RNG
+    from molecsim.data.rng import RNG
 
 BOUND_EPS = 1e-8
 

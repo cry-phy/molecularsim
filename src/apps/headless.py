@@ -23,10 +23,10 @@ import time
 
 import numpy as np
 
-from molecsim.physics.calculations import calculate_potential
+from molecsim.physics.calculations import molecule_potential
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.utils.place import randomized_system
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 from molecsim.data.contributors import make_potcall, SystemPotentials
 from molecsim.data.properties import SystemProperties
 from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
@@ -67,21 +67,20 @@ def main() -> None:
 
     mutation_functions = [mutate_rotate, mutate_translate]
     function_coefficients = [1.0, 1.0]
-    magnitude = 1.0
 
     start = time.perf_counter_ns()
 
     for _ in range(args.steps):
         old_molecule, new_molecule, _ = propose_new(
-            sim, mutation_functions, magnitude, function_coefficients, rng
+            sim, mutation_functions, function_coefficients, rng
         )
 
-        old_e = calculate_potential(sim.data, old_molecule.data, forces)
-        new_e = calculate_potential(sim.data, new_molecule.data, forces)
+        old_e = molecule_potential(sim, old_molecule, forces)
+        new_e = molecule_potential(sim, new_molecule, forces)
         dE = new_e - old_e
 
         if metropolis(sim.properties, dE, rng):
-            old_molecule.copy_from(new_molecule.data)
+            old_molecule.copy_from(new_molecule)
 
     end = time.perf_counter_ns()
     dt_ms = (end - start) / 1e6

@@ -11,7 +11,6 @@ import sys
 import os
 
 
-
 _PLOTLY_INIT_DONE = False
 
 
@@ -130,6 +129,10 @@ def plot_system(sim: SimSystem) -> tuple[go.Figure, Callable[[SimSystem], go.Fig
 
     fig = FigureT(data=[sticks, atoms, box])
 
+    fig.data[0].uid = "sticks"
+    fig.data[1].uid = "atoms"
+    fig.data[2].uid = "box"
+
     dark, invis = "#0b0f19", {"visible": False}
     fig.update_layout(
         title=getattr(sim, "name", None) or "System",
@@ -139,7 +142,12 @@ def plot_system(sim: SimSystem) -> tuple[go.Figure, Callable[[SimSystem], go.Fig
         plot_bgcolor=dark,
         font=dict(color="#ECECEC"),
         scene=dict(
-            xaxis=invis, yaxis=invis, zaxis=invis, aspectmode="data", bgcolor=dark
+            xaxis=invis,
+            yaxis=invis,
+            zaxis=invis,
+            aspectmode="data",
+            bgcolor=dark,
+            uirevision="molmc",
         ),
         uirevision="molmc",
     )
@@ -172,32 +180,27 @@ def plot_system(sim: SimSystem) -> tuple[go.Figure, Callable[[SimSystem], go.Fig
             zs[2::3] = np.nan
 
         # mutate traces IN PLACE (do not replace fig.data tuple)
-        if hasattr(fig, "batch_update"):
-            ctx = fig.batch_update()
-        else:
-            # dummy context manager
+        ctx = getattr(fig, "batch_update", None)
+        if ctx is None:
             from contextlib import nullcontext
 
             ctx = nullcontext()
 
-        with ctx:
-            # sticks
-            fig.data[STICKS_I].x = xs
-            fig.data[STICKS_I].y = ys
-            fig.data[STICKS_I].z = zs
+        with ctx():
+            s = fig.data[STICKS_I]
+            s.x, s.y, s.z = xs, ys, zs
 
-            # atoms
-            fig.data[ATOMS_I].x = new_atoms_pos[:, 0]
-            fig.data[ATOMS_I].y = new_atoms_pos[:, 1]
-            fig.data[ATOMS_I].z = new_atoms_pos[:, 2]
-            # (no marker/style changes -> less chance to reset view)
+            a = fig.data[ATOMS_I]
+            a.x, a.y, a.z = (
+                new_atoms_pos[:, 0],
+                new_atoms_pos[:, 1],
+                new_atoms_pos[:, 2],
+            )
 
-            # box
-            fig.data[BOX_I].x = new_box_trace.x
-            fig.data[BOX_I].y = new_box_trace.y
-            fig.data[BOX_I].z = new_box_trace.z
+            b = fig.data[BOX_I]
+            b.x, b.y, b.z = new_box_trace.x, new_box_trace.y, new_box_trace.z
 
-            # title text only (doesn't affect camera with uirevision set)
+            # Safe layout change: title text only
             fig.layout.title = getattr(new_sim, "name", None) or "System"
 
         return fig

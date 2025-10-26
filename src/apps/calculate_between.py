@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 import time
 from molecsim.physics.calculations import (
-    calculate_potential,
     full_potential,
+    molecule_potential,
     potential_breakdown,
 )
 from molecsim.data.contributors import make_potcall, SystemPotentials
@@ -21,7 +21,7 @@ from molecsim.physics.mc import metropolis
 from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.utils.plot import plot_system
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 import pickle
 
 import numpy as np
@@ -81,12 +81,12 @@ if __name__ == "__main__":
     for step in range(steps):
         # propose a move
         old_molecule, new_molecule, index = propose_new(
-            sim, mutation_functions, 1, function_coefficients, rng
+            sim, mutation_functions, function_coefficients, rng
         )
 
         # compute ΔE
-        old_contribution = calculate_potential(sim.data, old_molecule.data, forces)
-        new_contribution = calculate_potential(sim.data, new_molecule.data, forces)
+        old_contribution = molecule_potential(sim, old_molecule, forces)
+        new_contribution = molecule_potential(sim, new_molecule, forces)
         diff = new_contribution - old_contribution
 
         # accept/reject
@@ -95,13 +95,13 @@ if __name__ == "__main__":
 
         # apply & THEN update the plot
         if decider:
-            old_molecule.copy_from(new_molecule.data)
+            old_molecule.copy_from(new_molecule)
 
         # now visualize the *current* state
         if step % 1000 == 0:
             print(f"Step: {step}, recently {recent_acceptance}")
 
-        # checkpointing unchanged...
+        # checkpointing ...
         now = time.perf_counter_ns()
         if (now - last_save) / 1e9 >= save_every_seconds:
             tag = f"{save_count:05d}"

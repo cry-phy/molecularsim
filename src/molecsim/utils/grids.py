@@ -1,6 +1,6 @@
 import numpy as np
 from molecsim.data.data import StructureArray
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 
 
 def simple_cubic(

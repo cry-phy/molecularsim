@@ -3,7 +3,7 @@ import pytest
 
 from molecsim.data.properties import SystemProperties
 from molecsim.data.molecule import Molecule
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 from molecsim.physics.mutate import mutate_translate, mutate_rotate
 
 
@@ -26,7 +26,7 @@ def test_mutate_translate_shifts_positions(
     c0 = mol0.center.copy()
 
     magnitude = 0.5
-    mol1 = mutate_translate(mol0, props, magnitude, 1, test_rng)
+    mol1 = mutate_translate(mol0, props, magnitude, test_rng)
 
     # Original unchanged
     np.testing.assert_allclose(mol0.data.positions, orig)
@@ -58,7 +58,7 @@ def test_mutate_translate_zero_magnitude_is_noop(
     """Test that mutate_translate with zero magnitude is a no-op."""
     mol0 = test_molecule
     orig = mol0.data.positions.copy()
-    mol1 = mutate_translate(mol0, props, 0.0, 1, test_rng)
+    mol1 = mutate_translate(mol0, props, 0.0, test_rng)
     np.testing.assert_allclose(mol1.data.positions, orig, rtol=1e-12, atol=1e-12)
     assert mol1 is not mol0
     assert mol1.data is not mol0.data
@@ -74,7 +74,7 @@ def test_mutate_rotate_preserves_distances_only(
     positions_0 = mol0.data.positions.copy()
 
     angle = np.pi / 3
-    mol1 = mutate_rotate(mol0, props, angle, 1, test_rng)
+    mol1 = mutate_rotate(mol0, props, angle, test_rng)
     positions_1 = mol1.data.positions.copy()
 
     # Original molecule unchanged
@@ -105,7 +105,7 @@ def test_mutate_rotate_zero_angle_is_rigid(
     positions_0 = mol0.data.positions.copy()
     center = mol0.center.copy()
 
-    mol1 = mutate_rotate(mol0, props, 0.0, 1, test_rng)
+    mol1 = mutate_rotate(mol0, props, 0.0, test_rng)
     positions_1 = mol1.data.positions
 
     # Original unchanged

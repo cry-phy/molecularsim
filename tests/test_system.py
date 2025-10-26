@@ -9,7 +9,7 @@ from molecsim.data.system import SimSystem
 from molecsim.physics.geometry import BOUND_EPS
 from molecsim.utils.place import randomized_system
 from molecsim.utils.plot import plot_system
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 
 
 def pairwise_dists_mic(

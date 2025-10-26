@@ -3,6 +3,7 @@ from molecsim.data.data import StructureArray, StructureView, SystemData
 from collections.abc import Iterable
 from copy import deepcopy
 
+
 class StructureNode:
     """Node in the Structure Tree."""
 
@@ -16,6 +17,7 @@ class StructureNode:
     def __repr__(self) -> str:
         """Give simple representation."""
         return f"""<StructureNode: {self.molecular_index}, {[neigh.molecular_index for neigh in self.neighbors]}>"""
+
 
 class Molecule:
     """Holds structural information of single Molecule.
@@ -35,9 +37,9 @@ class Molecule:
         # default to first atom for now, later COM?
         self._center: StructureArray | StructureView = data.positions[0]
 
-    def copy_from(self, data: SystemData) -> None:
+    def copy_from(self, molecule: Molecule) -> None:
         """Set underlying data with copies of this data."""
-        self._data_slices.copy_from(data)
+        self._data_slices.copy_from(molecule.data)
 
     @property
     def center(self):

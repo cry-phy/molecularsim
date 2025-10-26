@@ -2,25 +2,23 @@ from molecsim.data.system import SimSystem
 from molecsim.data.properties import SystemProperties
 from molecsim.data.molecule import Molecule
 from molecsim.physics.geometry import contain_to_box, rotate_rigid_pbc
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 from collections.abc import Callable, Sequence
 import numpy as np
+import numpy.typing as npt
 
-type MutateFunction = Callable[
-    [Molecule, SystemProperties, float, float, RNG], Molecule
-]
+type MutateFunction = Callable[[Molecule, SystemProperties, float, RNG], Molecule]
 
 
 def mutate_translate(
     molecule: Molecule,
     props: SystemProperties,
-    magnitude: float,
     coeff: float,
     rng: RNG,
 ) -> Molecule:
     """Mutate molecule by moving it."""
     new_molecule = molecule.copy_data()
-    shift = coeff * magnitude * rng.random() * rng.random_direction()
+    shift = coeff * rng.random() * rng.random_direction()
     new_molecule.data.positions += shift
     return new_molecule
 
@@ -28,13 +26,12 @@ def mutate_translate(
 def mutate_rotate(
     molecule: Molecule,
     props: SystemProperties,
-    magnitude: float,
     coeff: float,
     rng: RNG,
 ) -> Molecule:
     """Mutate molecule by Rotation around Molecule.center."""
     new = molecule.copy_data()
-    R = rng.rotation_matrix(magnitude * coeff)
+    R = rng.rotation_matrix(coeff)
     pos = molecule.data.positions
     box = props.box
     rotated = (
@@ -49,8 +46,7 @@ def mutate_rotate(
 def propose_new(
     system: SimSystem,
     mutation_functions: Sequence[MutateFunction],
-    magnitude: float,
-    magnitude_coefficients: Sequence[float],
+    magnitude_coefficients: Sequence[float] | npt.NDArray,
     rng: RNG,
 ) -> tuple[Molecule, Molecule, int]:
     """Propose change in system based on change of one molecule.
@@ -65,7 +61,6 @@ def propose_new(
     new_molecule = mutation_fn(
         old_molecule,
         system.properties,
-        magnitude,
         mutation_function_coeff,
         rng,
     )

@@ -16,29 +16,27 @@ import threading
 import time
 from datetime import datetime
 from typing import Any, Callable, Sequence, Tuple
-
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
-
-# Attach Streamlit run context to threads (if available)
-try:
-    from streamlit.runtime.scriptrunner import add_script_run_ctx  # Streamlit >=1.18
-except Exception:  # pragma: no cover
-    add_script_run_ctx = None  # best-effort fallback
+from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # ---- Project imports ----
 from molecsim.data.contributors import make_potcall, SystemPotentials
 from molecsim.data.properties import SystemProperties
-from molecsim.physics.calculations import all_rdfs, calculate_potential
+from molecsim.physics.calculations import (
+    all_rdfs,
+    calculate_potential,
+    molecule_potential,
+)
 from molecsim.physics.mc import metropolis
 from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
 from molecsim.physics.potentials import coulomb, lennard_jones
 from molecsim.utils.parsers import parse_com
 from molecsim.utils.place import randomized_system
 from molecsim.utils.plot import plot_system
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 
 
 # --------------------------------------------------------------------------------------
@@ -87,11 +85,11 @@ def step_once(
 ) -> None:
     """Perform one Metropolis MC proposal and update stats/EMA."""
     old_molecule, new_molecule, index = propose_new(
-        sim, mutation_functions, 1, function_coefficients, rng
+        sim, mutation_functions, function_coefficients, rng
     )
 
-    old_contrib = calculate_potential(sim.data, old_molecule.data, forces)
-    new_contrib = calculate_potential(sim.data, new_molecule.data, forces)
+    old_contrib = molecule_potential(sim, old_molecule, forces)
+    new_contrib = molecule_potential(sim, new_molecule, forces)
     diff = new_contrib - old_contrib
 
     decider = metropolis(sim.properties, diff, rng)
@@ -101,7 +99,7 @@ def step_once(
     ema_accept[index] = float(np.clip(ema, 0.0, 1.0))
 
     if decider:
-        old_molecule.copy_from(new_molecule.data)
+        old_molecule.copy_from(new_molecule)
         stats["accepted"] += 1
     stats["trials"] += 1
 
@@ -218,12 +216,17 @@ def worker_loop() -> None:
                     step_once(sim, forces, rng, muts, coeffs, ema, alpha, stats)
 
                     # Auto-sample RDF while recording
-                    if st.session_state.rdf_recording and st.session_state.rdf_auto_sample:
+                    if (
+                        st.session_state.rdf_recording
+                        and st.session_state.rdf_auto_sample
+                    ):
                         stride = max(1, int(st.session_state.rdf_stride))
                         now_steps = int(st.session_state.stats.get("trials", 0))
                         last = int(st.session_state.rdf_last_sample_step)
                         if now_steps - last >= stride:
-                            rdf_record_single_snapshot(int(st.session_state.rdf_bins_count))
+                            rdf_record_single_snapshot(
+                                int(st.session_state.rdf_bins_count)
+                            )
                             st.session_state.rdf_last_sample_step = now_steps
         except Exception:
             time.sleep(0.02)
@@ -282,13 +285,18 @@ def rdf_record_single_snapshot(num_bins: int) -> None:
     """Accumulate one RDF snapshot into session accumulators."""
     bins, snap = all_rdfs(st.session_state.sim, num_bins)
 
-    if st.session_state.rdf_bins_edges is None or len(st.session_state.rdf_bins_edges) != len(bins):
+    if st.session_state.rdf_bins_edges is None or len(
+        st.session_state.rdf_bins_edges
+    ) != len(bins):
         st.session_state.rdf_bins_edges = bins
         st.session_state.rdf_accum = {}
         st.session_state.rdf_samples = 0
 
     for key, h in snap.items():
-        if key not in st.session_state.rdf_accum or st.session_state.rdf_accum[key].shape != h.shape:
+        if (
+            key not in st.session_state.rdf_accum
+            or st.session_state.rdf_accum[key].shape != h.shape
+        ):
             st.session_state.rdf_accum[key] = np.zeros_like(h, dtype=float)
         st.session_state.rdf_accum[key] += h
 
@@ -297,8 +305,17 @@ def rdf_record_single_snapshot(num_bins: int) -> None:
 
 def rdf_plot() -> go.Figure | None:
     """Return a Plotly figure of the averaged RDF, if available."""
-    bins = st.session_state.rdf_bins_edges
-    if bins is None or st.session_state.rdf_samples == 0 or not st.session_state.rdf_accum:
+    with st.session_state.worker_lock:
+        bins = st.session_state.rdf_bins_edges
+        samples = int(st.session_state.rdf_samples)
+        accum = {k: v.copy() for k, v in st.session_state.rdf_accum.items()}
+    if bins is None or samples == 0 or not accum:
+        return None
+    if (
+        bins is None
+        or st.session_state.rdf_samples == 0
+        or not st.session_state.rdf_accum
+    ):
         return None
 
     centers = 0.5 * (bins[:-1] + bins[1:])
@@ -330,7 +347,9 @@ def rdf_csv_bytes() -> bytes:
 
         buf = io.StringIO()
         w = csv.writer(buf)
-        header = ["bin", "r_left", "r_right", "r_center"] + [f"{a}-{b}" for (a, b) in pairs]
+        header = ["bin", "r_left", "r_right", "r_center"] + [
+            f"{a}-{b}" for (a, b) in pairs
+        ]
         w.writerow(header)
         for k in range(nbins):
             row = [k, float(bins[k]), float(bins[k + 1]), float(centers[k])]
@@ -361,20 +380,21 @@ def update_and_render(plot_area) -> None:
     """Update 3D scene traces and render exactly once per rerun."""
     if st.session_state.update_fig is not None and st.session_state.sim is not None:
         with st.session_state.worker_lock:
-            maybe_new = st.session_state.update_fig(st.session_state.sim)
-        if isinstance(maybe_new, go.Figure) and maybe_new is not st.session_state.fig:
-            st.session_state.fig = maybe_new
-            st.session_state.apply_camera_next = True
+            _ = st.session_state.update_fig(st.session_state.sim)
 
     fig = st.session_state.fig
     if fig is None:
         return
 
+    # (optional) reapply last camera when you *do* rebuild on purpose elsewhere
     if st.session_state.apply_camera_next and st.session_state.scene_camera is not None:
         fig.update_layout(scene_camera=st.session_state.scene_camera)
         st.session_state.apply_camera_next = False
 
-    apply_plot_persistence(fig)
+    # Make sure scene-level uirevision is set (you already do this).
+    if getattr(fig.layout, "scene", None) is not None:
+        fig.layout.scene.uirevision = "molmc"
+
     plot_area.plotly_chart(
         fig,
         use_container_width=True,
@@ -382,6 +402,7 @@ def update_and_render(plot_area) -> None:
         config={"scrollZoom": True},
     )
 
+    # Cache camera after render
     try:
         cam = fig.layout.scene.camera
         if cam:
@@ -395,7 +416,9 @@ def update_and_render(plot_area) -> None:
 # --------------------------------------------------------------------------------------
 def render_quickstart(main_container) -> None:
     """Render collapsible quickstart/help panel."""
-    with main_container.expander("Quickstart & Help", expanded=st.session_state.show_quickstart):
+    with main_container.expander(
+        "Quickstart & Help", expanded=st.session_state.show_quickstart
+    ):
         st.markdown(
             """
 **What to do**
@@ -501,7 +524,9 @@ def sidebar_mutation_coefficients() -> None:
         use_container_width=True,
         column_config={
             "Mutation": st.column_config.TextColumn(disabled=True),
-            "Coefficient": st.column_config.NumberColumn(min_value=0.0, step=0.05, format="%.4f"),
+            "Coefficient": st.column_config.NumberColumn(
+                min_value=0.0, step=0.05, format="%.4f"
+            ),
         },
         key="__coef_editor__",
     )
@@ -539,7 +564,9 @@ def sidebar_initialize_or_load() -> None:
     st.header("Initialize / Load")
 
     st.subheader("Build system from Gaussian inputs")
-    files_text = st.text_input("Files (.com/.gjf, comma-separated)", value="resources/h2o.com")
+    files_text = st.text_input(
+        "Files (.com/.gjf, comma-separated)", value="resources/h2o.com"
+    )
     numbers_text = st.text_input("Counts (integers, comma-separated)", value="10")
     box_text = st.text_input("Box (Å, 'Lx,Ly,Lz')", value="30,30,30")
     temperature = st.number_input("Temperature (K)", min_value=0.0, value=298.15)
@@ -550,13 +577,17 @@ def sidebar_initialize_or_load() -> None:
             files = [s.strip() for s in files_text.split(",") if s.strip()]
             numbers = [int(s.strip()) for s in numbers_text.split(",") if s.strip()]
             if len(files) != len(numbers):
-                raise ValueError(f"files ({len(files)}) and counts ({len(numbers)}) differ")
+                raise ValueError(
+                    f"files ({len(files)}) and counts ({len(numbers)}) differ"
+                )
             box = [float(s.strip()) for s in box_text.split(",")]
             if len(box) != 3:
                 raise ValueError("box must have 3 values (Lx,Ly,Lz)")
 
             stop_worker()
-            sim, props, forces, rng, fig, updater = build_system(files, numbers, box, temperature, seed)
+            sim, props, forces, rng, fig, updater = build_system(
+                files, numbers, box, temperature, seed
+            )
             _assign_new_system(sim, props, forces, rng, fig, updater)
         except Exception as e:
             st.error(f"Failed to build system: {e}")
@@ -578,12 +609,23 @@ def sidebar_initialize_or_load() -> None:
                 coulomb_cont = make_potcall(coulomb, st.session_state.sim.properties)
                 lj_cont = make_potcall(lennard_jones, st.session_state.sim.properties)
                 forces = SystemPotentials([coulomb_cont, lj_cont])
-                _assign_new_system(obj, st.session_state.props, forces, st.session_state.rng, fig, updater)
+                _assign_new_system(
+                    obj,
+                    st.session_state.props,
+                    forces,
+                    st.session_state.rng,
+                    fig,
+                    updater,
+                )
             except Exception as e:
                 st.error(f"Failed to load pickle: {e}")
 
     with c_path:
-        if st.button("Load from path", use_container_width=True, disabled=(pick_path.strip() == "")):
+        if st.button(
+            "Load from path",
+            use_container_width=True,
+            disabled=(pick_path.strip() == ""),
+        ):
             try:
                 stop_worker()
                 with open(pick_path, "rb") as f:
@@ -595,7 +637,14 @@ def sidebar_initialize_or_load() -> None:
                 coulomb_cont = make_potcall(coulomb, st.session_state.sim.properties)
                 lj_cont = make_potcall(lennard_jones, st.session_state.sim.properties)
                 forces = SystemPotentials([coulomb_cont, lj_cont])
-                _assign_new_system(obj, st.session_state.props, forces, st.session_state.rng, fig, updater)
+                _assign_new_system(
+                    obj,
+                    st.session_state.props,
+                    forces,
+                    st.session_state.rng,
+                    fig,
+                    updater,
+                )
             except Exception as e:
                 st.error(f"Failed to load {pick_path}: {e}")
 
@@ -611,7 +660,11 @@ def sidebar_save_state() -> None:
 
     c_spath, c_sdl = st.columns(2)
     with c_spath:
-        if st.button("Save to path", use_container_width=True, disabled=not st.session_state.initialized):
+        if st.button(
+            "Save to path",
+            use_container_width=True,
+            disabled=not st.session_state.initialized,
+        ):
             try:
                 if not st.session_state.save_filename.strip():
                     raise ValueError("Filename is empty.")
@@ -673,7 +726,11 @@ def render_rdf_recorder() -> None:
         c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
 
         with c1:
-            if st.button("Start", use_container_width=True, disabled=not st.session_state.initialized):
+            if st.button(
+                "Start",
+                use_container_width=True,
+                disabled=not st.session_state.initialized,
+            ):
                 st.session_state.rdf_recording = True
         with c2:
             if st.button("Stop", use_container_width=True):
@@ -683,7 +740,9 @@ def render_rdf_recorder() -> None:
                 st.session_state.rdf_accum = {}
                 st.session_state.rdf_samples = 0
                 st.session_state.rdf_bins_edges = None
-                st.session_state.rdf_last_sample_step = int(st.session_state.stats.get("trials", 0))
+                st.session_state.rdf_last_sample_step = int(
+                    st.session_state.stats.get("trials", 0)
+                )
         with c4:
             st.number_input(
                 "Bins",
@@ -712,7 +771,11 @@ def render_rdf_recorder() -> None:
             )
 
         # Manual snapshot on rerun (when auto-sample is OFF)
-        if st.session_state.initialized and st.session_state.rdf_recording and not st.session_state.rdf_auto_sample:
+        if (
+            st.session_state.initialized
+            and st.session_state.rdf_recording
+            and not st.session_state.rdf_auto_sample
+        ):
             try:
                 with st.session_state.worker_lock:
                     rdf_record_single_snapshot(int(st.session_state.rdf_bins_count))
@@ -738,7 +801,10 @@ def render_rdf_recorder() -> None:
             if st.button(
                 "Save CSV to path",
                 use_container_width=True,
-                disabled=(st.session_state.rdf_bins_edges is None or st.session_state.rdf_samples == 0),
+                disabled=(
+                    st.session_state.rdf_bins_edges is None
+                    or st.session_state.rdf_samples == 0
+                ),
             ):
                 try:
                     rdf_save_csv_to_path(st.session_state.rdf_csv_filename)
@@ -755,7 +821,10 @@ def render_rdf_recorder() -> None:
                     file_name=st.session_state.rdf_csv_filename or "rdf.csv",
                     mime="text/csv",
                     use_container_width=True,
-                    disabled=(st.session_state.rdf_bins_edges is None or st.session_state.rdf_samples == 0),
+                    disabled=(
+                        st.session_state.rdf_bins_edges is None
+                        or st.session_state.rdf_samples == 0
+                    ),
                 )
             except Exception:
                 st.download_button(

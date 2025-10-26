@@ -5,7 +5,6 @@ from molecsim.data.properties import SystemProperties
 from collections.abc import Sequence
 
 
-
 class SimSystem:
     """System contains the underlying data Structure and general Stucture information."""
 

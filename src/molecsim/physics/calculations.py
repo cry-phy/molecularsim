@@ -1,5 +1,6 @@
 from __future__ import annotations
 from molecsim.data.data import SystemData, StructureArray, INT_DTYPE
+from molecsim.data.molecule import Molecule
 from molecsim.data.properties import SystemProperties
 from molecsim.data.system import SimSystem
 from molecsim.data.contributors import PotCall, SystemPotentials
@@ -82,6 +83,13 @@ def calculate_potential(
         if include_disabled or enabled:
             total += float(fn(large_data, small_data, *args, **kwargs))
     return total
+
+
+def molecule_potential(
+    sim: SimSystem, molecule: Molecule, potentials: SystemPotentials
+) -> float:
+    """Calculate Potential contribution for single molecule."""
+    return calculate_potential(sim.data, molecule.data, potentials)
 
 
 def all_rdfs(

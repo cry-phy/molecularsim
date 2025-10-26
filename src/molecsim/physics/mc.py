@@ -1,5 +1,5 @@
 from molecsim.data.properties import SystemProperties
-from molecsim.utils.rng import RNG
+from molecsim.data.rng import RNG
 import numpy as np
 
 
