@@ -1,1 +1,1 @@
-"""Main Simulation Systems."""
+"""Molecular Monte Carlo modelling software."""

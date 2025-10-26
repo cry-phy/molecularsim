@@ -1,13 +1,21 @@
 from __future__ import annotations
+from molecsim.data.data import StructureArray, StructureView, SystemData
 from collections.abc import Iterable
-from molecsim.system.data import (
-    StructureArray,
-    StructureNode,
-    StructureView,
-    SystemData,
-)
 from copy import deepcopy
 
+class StructureNode:
+    """Node in the Structure Tree."""
+
+    def __init__(
+        self, molecular_index: int, neighbors: Iterable[StructureNode]
+    ) -> None:
+        """Generate empty node."""
+        self.molecular_index: int = molecular_index
+        self.neighbors: list[StructureNode] = list(neighbors)
+
+    def __repr__(self) -> str:
+        """Give simple representation."""
+        return f"""<StructureNode: {self.molecular_index}, {[neigh.molecular_index for neigh in self.neighbors]}>"""
 
 class Molecule:
     """Holds structural information of single Molecule.

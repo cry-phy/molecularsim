@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from molecsim.utils.geometry import rot_matrix_uniform
+from molecsim.physics.geometry import rot_matrix_uniform
 
 
 class RNG:

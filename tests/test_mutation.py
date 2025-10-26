@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
-from molecsim.system.data import SystemProperties
+from molecsim.data.properties import SystemProperties
+from molecsim.data.molecule import Molecule
 from molecsim.utils.rng import RNG
-from molecsim.system.molecule import Molecule
-from molecsim.system.mutate import mutate_translate, mutate_rotate
+from molecsim.physics.mutate import mutate_translate, mutate_rotate
 
 
 def is_proper_rotation(rotation_matrix: np.ndarray, rtol=1e-10, atol=1e-12) -> bool:

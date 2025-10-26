@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from molecsim.system.data import FLOAT_DTYPE
-from molecsim.utils.geometry import (
+from molecsim.data.data import FLOAT_DTYPE
+from molecsim.physics.geometry import (
     rot_matrix,
     rot_matrix_quaternions,
 )

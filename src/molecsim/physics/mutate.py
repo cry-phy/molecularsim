@@ -1,9 +1,9 @@
-from collections.abc import Callable, Sequence
-from molecsim.system.data import SystemProperties
-from molecsim.utils.geometry import contain_to_box, rotate_rigid_pbc
+from molecsim.data.system import SimSystem
+from molecsim.data.properties import SystemProperties
+from molecsim.data.molecule import Molecule
+from molecsim.physics.geometry import contain_to_box, rotate_rigid_pbc
 from molecsim.utils.rng import RNG
-from molecsim.system.molecule import Molecule
-from molecsim.system.system import SimSystem
+from collections.abc import Callable, Sequence
 import numpy as np
 
 type MutateFunction = Callable[

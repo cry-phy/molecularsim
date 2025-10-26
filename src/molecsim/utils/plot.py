@@ -1,19 +1,16 @@
 from __future__ import annotations
-
+from molecsim.data.data import StructureArray, FLOAT_DTYPE, FloatPrecision
+from molecsim.data.system import SimSystem
+from molecsim.data.molecule import Molecule
 from collections.abc import Callable, Iterable, Sequence
-
-import numpy as np
-import numpy.typing as npt
 import plotly.graph_objects as go
-
-from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, StructureArray, SystemData
-from molecsim.system.molecule import Molecule
-
-import os
-import sys
 import plotly.io as pio
+import numpy.typing as npt
+import numpy as np
+import sys
+import os
 
-from molecsim.system.system import SimSystem
+
 
 _PLOTLY_INIT_DONE = False
 

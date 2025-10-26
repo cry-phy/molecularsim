@@ -2,10 +2,11 @@ import numpy as np
 import pytest
 
 
-from molecsim.system.data import FLOAT_DTYPE, SystemData, SystemProperties
-from molecsim.system.molecule import Molecule
-from molecsim.system.system import SimSystem
-from molecsim.utils.geometry import BOUND_EPS
+from molecsim.data.data import FLOAT_DTYPE, SystemData
+from molecsim.data.properties import SystemProperties
+from molecsim.data.molecule import Molecule
+from molecsim.data.system import SimSystem
+from molecsim.physics.geometry import BOUND_EPS
 from molecsim.utils.place import randomized_system
 from molecsim.utils.plot import plot_system
 from molecsim.utils.rng import RNG

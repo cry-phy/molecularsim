@@ -1,5 +1,5 @@
 import numpy as np
-from molecsim.system.data import StructureArray
+from molecsim.data.data import StructureArray
 from molecsim.utils.rng import RNG
 
 

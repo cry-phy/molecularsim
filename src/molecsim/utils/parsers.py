@@ -1,14 +1,12 @@
-from molecsim.system.data import FLOAT_DTYPE, FloatPrecision, StructureNode, SystemData
-from molecsim.system.molecule import Molecule
-
+from molecsim.data.data import SystemData, FloatPrecision, FLOAT_DTYPE
+from molecsim.data.molecule import Molecule, StructureNode
+from typing import Protocol
+import numpy.typing as npt
+import numpy as np
+from pathlib import Path
+import argparse
 import os
 import re
-import numpy as np
-import numpy.typing as npt
-from typing import Protocol
-
-import argparse
-from pathlib import Path
 
 
 class Parser(Protocol):

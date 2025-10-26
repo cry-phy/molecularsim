@@ -5,19 +5,19 @@ Usage example (called from project root):
 python src/apps/calculate_between.py -f tests/data/water_zmatrix.com -n 2 -t 10 -b 10,10,10
 """
 
-from abc import update_abstractmethods
 import os
 from pathlib import Path
 import time
-from molecsim.system.calculations import (
+from molecsim.physics.calculations import (
     calculate_potential,
     full_potential,
     potential_breakdown,
 )
-from molecsim.system.data import make_potcall, SystemForces, SystemProperties
-from molecsim.system.mutate import mutate_rotate, mutate_translate, propose_new
-from molecsim.system.potentials import coulomb, lennard_jones
-from molecsim.utils.mc import metropolis
+from molecsim.data.contributors import make_potcall, SystemPotentials
+from molecsim.data.properties import SystemProperties
+from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
+from molecsim.physics.potentials import coulomb, lennard_jones
+from molecsim.physics.mc import metropolis
 from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.utils.plot import plot_system
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     )
     lj_cont = make_potcall(lennard_jones, props)
 
-    forces = SystemForces([coulomb_cont, lj_cont])
+    forces = SystemPotentials([coulomb_cont, lj_cont])
 
     breakdown = potential_breakdown(sim, forces)
     full = full_potential(sim, forces)

@@ -1,20 +1,10 @@
-# molecsim/system/calculations.py
-
 from __future__ import annotations
+from molecsim.data.data import SystemData, StructureArray, INT_DTYPE
+from molecsim.data.properties import SystemProperties
+from molecsim.data.system import SimSystem
+from molecsim.data.contributors import PotCall, SystemPotentials
+from molecsim.physics.geometry import distance_squares
 from collections.abc import Iterable
-from typing import Union
-
-from molecsim.system.data import (
-    INT_DTYPE,
-    PotCall,
-    StructureArray,
-    SystemData,
-    SystemForces,
-    SystemProperties,
-)
-from molecsim.system.molecule import Molecule
-from molecsim.system.potentials import distance_squares
-from molecsim.system.system import SimSystem
 import numpy.typing as npt
 import numpy as np
 
@@ -23,14 +13,14 @@ def _iter_enabled(
     forces: Iterable[PotCall], *, include_disabled: bool
 ) -> Iterable[PotCall]:
     """Normalize any iterable of PotCall and optionally filter disabled terms."""
-    if isinstance(forces, SystemForces):
+    if isinstance(forces, SystemPotentials):
         return forces if include_disabled else forces.enabled()
     return forces if include_disabled else (pc for pc in forces if pc.enabled)
 
 
 def potential_breakdown(
     system: SimSystem,
-    forces: Iterable[PotCall] | SystemForces,
+    forces: Iterable[PotCall] | SystemPotentials,
     *,
     include_disabled: bool = False,
 ) -> list[tuple[str | None, float]]:
@@ -43,7 +33,7 @@ def potential_breakdown(
 def calculate_breakdown(
     large_data: SystemData,
     small_data: SystemData,
-    forces: Iterable[PotCall] | SystemForces,
+    forces: Iterable[PotCall] | SystemPotentials,
     *,
     include_disabled: bool = False,
 ) -> list[tuple[str | None, float]]:
@@ -63,7 +53,7 @@ def calculate_breakdown(
 
 def full_potential(
     system: SimSystem,
-    forces: Iterable[PotCall] | SystemForces,
+    forces: Iterable[PotCall] | SystemPotentials,
     *,
     include_disabled: bool = False,
 ) -> float:
@@ -76,7 +66,7 @@ def full_potential(
 def calculate_potential(
     large_data: SystemData,
     small_data: SystemData,
-    forces: Iterable[PotCall] | SystemForces,
+    forces: Iterable[PotCall] | SystemPotentials,
     *,
     include_disabled: bool = False,
 ) -> float:

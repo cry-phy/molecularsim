@@ -23,15 +23,15 @@ import time
 
 import numpy as np
 
+from molecsim.physics.calculations import calculate_potential
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.utils.place import randomized_system
 from molecsim.utils.rng import RNG
-from molecsim.utils.mc import metropolis
-
-from molecsim.system.data import make_potcall, SystemForces, SystemProperties
-from molecsim.system.mutate import mutate_rotate, mutate_translate, propose_new
-from molecsim.system.calculations import calculate_potential
-from molecsim.system.potentials import coulomb, lennard_jones
+from molecsim.data.contributors import make_potcall, SystemPotentials
+from molecsim.data.properties import SystemProperties
+from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
+from molecsim.physics.potentials import coulomb, lennard_jones
+from molecsim.physics.mc import metropolis
 
 
 def main() -> None:
@@ -58,7 +58,7 @@ def main() -> None:
     sim = randomized_system(props, rng)
 
     # Minimal force field: Coulomb + Lennard-Jones
-    forces = SystemForces(
+    forces = SystemPotentials(
         [
             make_potcall(coulomb, props),
             make_potcall(lennard_jones, props),

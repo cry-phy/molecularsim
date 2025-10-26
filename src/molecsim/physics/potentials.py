@@ -1,48 +1,14 @@
 """All force Calculations should be made using a function following PotContributor Signature."""
 
-from molecsim.system.data import (
-    FloatPrecision,
-    SystemData,
-    FLOAT_DTYPE,
-    SystemProperties,
+from molecsim.data.data import SystemData, FloatPrecision, FLOAT_DTYPE
+from molecsim.data.properties import SystemProperties
+from molecsim.physics.geometry import (
+    distance_squares,
+    extra_interaction_mask,
+    intra_interaction_mask,
 )
 import numpy.typing as npt
 import numpy as np
-
-
-def extra_interaction_mask(
-    large_data: SystemData,
-    small_data: SystemData,
-) -> npt.NDArray[np.bool_]:
-    """Generate mask for all pairs between small and large data.
-
-    Only includese interactions between small_data and large_data, not within small_data.
-    """
-    mask = np.ones(shape=(len(large_data), len(small_data)), dtype=bool)
-    sub_start, sub_end = small_data.data_interval()
-    mask[sub_start:sub_end, :] = False
-    return mask
-
-
-def intra_interaction_mask(
-    small_data: SystemData,
-) -> npt.NDArray[np.bool_]:
-    """Generate mask for all pairs within small_data only."""
-    subset_mask = np.tril(np.ones((len(small_data), len(small_data)), dtype=bool), k=-1)
-    return subset_mask
-
-
-def distance_squares(
-    large_data: SystemData,
-    small_data: SystemData,
-    box: npt.NDArray[FloatPrecision],
-    periodic: bool,
-) -> npt.NDArray[FloatPrecision]:
-    """Calculate MxN distance pair matrix with or without MIC based on periodicity."""
-    dist_vecs = large_data.positions[:, None, :] - small_data.positions[None, :, :]
-    if periodic:  # needs MIC
-        dist_vecs -= box * np.round(dist_vecs / box)
-    return np.einsum("mni->mn", dist_vecs**2)
 
 
 def harmonic_well(

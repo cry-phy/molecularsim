@@ -1,10 +1,10 @@
-from molecsim.system.data import SystemData, SystemProperties
-from molecsim.system.mutate import mutate_rotate
-from molecsim.system.system import SimSystem
-from molecsim.utils.geometry import fuzzyfy, contain_to_box
+from molecsim.data.data import SystemData
+from molecsim.data.properties import SystemProperties
+from molecsim.data.system import SimSystem
+from molecsim.physics.mutate import mutate_rotate
+from molecsim.physics.geometry import contain_to_box, fuzzyfy
 from molecsim.utils.grids import simple_cubic
 from molecsim.utils.rng import RNG
-import numpy as np
 
 
 def randomized_system(

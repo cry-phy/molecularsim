@@ -1,11 +1,8 @@
 import numpy as np
 import pytest
 
-from molecsim.system.data import (
-    SystemForces,
-    make_potcall,
-)
-from molecsim.system.calculations import full_potential
+from molecsim.data.contributors import SystemPotentials, make_potcall
+from molecsim.physics.calculations import full_potential
 
 
 def test_toggling_and_names_helpers_exist(simsys, lin_sum_x):
@@ -13,7 +10,7 @@ def test_toggling_and_names_helpers_exist(simsys, lin_sum_x):
     pot_call_1 = make_potcall(lin_sum_x, 0.0, name="E1")
     pot_call_2 = make_potcall(lin_sum_x, 1.0, name="E2")
     pot_call_3 = make_potcall(lin_sum_x, 2.0, name="E3")
-    forces = SystemForces([pot_call_1, pot_call_2, pot_call_3])
+    forces = SystemPotentials([pot_call_1, pot_call_2, pot_call_3])
 
     # .names() helper for simple introspection
     assert forces.names() == ("E1", "E2", "E3")

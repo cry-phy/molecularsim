@@ -1,7 +1,9 @@
 from __future__ import annotations
+from molecsim.data.data import SystemData
+from molecsim.data.molecule import Molecule
+from molecsim.data.properties import SystemProperties
 from collections.abc import Sequence
-from molecsim.system.data import SystemData, SystemProperties
-from molecsim.system.molecule import Molecule
+
 
 
 class SimSystem:

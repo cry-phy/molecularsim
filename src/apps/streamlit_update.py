@@ -1,5 +1,4 @@
-"""
-App allowing for live tracking of the system via Streamlit app.
+"""App allowing for live tracking of the system via Streamlit app.
 
 To run need to install streamlit in addition to the molecsim package.
 
@@ -19,7 +18,6 @@ from __future__ import annotations
 import time
 import threading
 import pickle
-from pathlib import Path
 from typing import Any, Callable, Sequence, Tuple
 
 import csv
@@ -29,7 +27,8 @@ from datetime import datetime
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh  # <-- always use plugin
+from streamlit_autorefresh import st_autorefresh
+
 
 # Attach Streamlit run context to threads (if available)
 try:
@@ -39,11 +38,12 @@ except Exception:
 
 
 # ---- Your project imports (from the CLI example) ----
-from molecsim.system.calculations import all_rdfs, calculate_potential
-from molecsim.system.data import make_potcall, SystemForces, SystemProperties
-from molecsim.system.mutate import mutate_rotate, mutate_translate, propose_new
-from molecsim.system.potentials import coulomb, lennard_jones
-from molecsim.utils.mc import metropolis
+from molecsim.data.contributors import make_potcall, SystemPotentials
+from molecsim.data.properties import SystemProperties
+from molecsim.physics.calculations import all_rdfs, calculate_potential
+from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
+from molecsim.physics.potentials import coulomb, lennard_jones
+from molecsim.physics.mc import metropolis
 from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_com
 from molecsim.utils.plot import plot_system
@@ -62,7 +62,7 @@ def build_system(
 ) -> Tuple[
     Any,
     SystemProperties,
-    SystemForces,
+    SystemPotentials,
     RNG,
     go.Figure,
     Callable[[Any], go.Figure | None],
@@ -77,7 +77,7 @@ def build_system(
 
     coulomb_cont = make_potcall(coulomb, props)
     lj_cont = make_potcall(lennard_jones, props)
-    forces = SystemForces([coulomb_cont, lj_cont])
+    forces = SystemPotentials([coulomb_cont, lj_cont])
 
     fig, update = plot_system(sim)
     return sim, props, forces, rng, fig, update
@@ -85,7 +85,7 @@ def build_system(
 
 def step_once(
     sim: Any,
-    forces: SystemForces,
+    forces: SystemPotentials,
     rng: RNG,
     mutation_functions: Sequence[Callable[..., Any]],
     function_coefficients: np.ndarray,
@@ -624,7 +624,7 @@ with st.sidebar:
                 st.session_state.rng = RNG(seed)
                 coulomb_cont = make_potcall(coulomb, st.session_state.sim.properties)
                 lj_cont = make_potcall(lennard_jones, st.session_state.sim.properties)
-                st.session_state.forces = SystemForces([coulomb_cont, lj_cont])
+                st.session_state.forces = SystemPotentials([coulomb_cont, lj_cont])
             except Exception as e:
                 st.error(f"Failed to load pickle: {e}")
     with c_path:
@@ -651,7 +651,7 @@ with st.sidebar:
                 st.session_state.rng = RNG(seed)
                 coulomb_cont = make_potcall(coulomb, st.session_state.sim.properties)
                 lj_cont = make_potcall(lennard_jones, st.session_state.sim.properties)
-                st.session_state.forces = SystemForces([coulomb_cont, lj_cont])
+                st.session_state.forces = SystemPotentials([coulomb_cont, lj_cont])
 
             except Exception as e:
                 st.error(f"Failed to load {pick_path}: {e}")

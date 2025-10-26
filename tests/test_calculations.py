@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from molecsim.system.calculations import radial_distances
+from molecsim.physics.calculations import radial_distances
 
 
 def test_radial_distribution_function(simsys):

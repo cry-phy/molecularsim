@@ -17,7 +17,7 @@ from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.utils.rng import RNG
 from molecsim.utils.place import randomized_system
 from molecsim.utils.plot import add_periodic_debug_traces, plot_system
-from molecsim.system.data import SystemProperties
+from molecsim.data.properties import SystemProperties
 
 
 def main() -> None:

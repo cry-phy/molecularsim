@@ -1,12 +1,8 @@
 import pytest
 
-from molecsim.system.data import (
-    SystemData,
-    make_potcall,
-    validate_contributor,
-    SystemForces,
-)
-from molecsim.system.calculations import full_potential
+from molecsim.data.contributors import make_potcall, SystemPotentials, validate_contributor
+from molecsim.physics.calculations import full_potential
+from molecsim.data.data import SystemData
 
 
 def test_validate_contributor_requires_defaults_or_runtime_guard(simsys):
@@ -26,7 +22,7 @@ def test_validate_contributor_requires_defaults_or_runtime_guard(simsys):
     if not raised:
         # If validator is permissive, ensure evaluation fails when args are missing.
         pot_call = make_potcall(bad, 1, name="bad")  # provide x, only; y,z missing
-        forces = SystemForces([pot_call])
+        forces = SystemPotentials([pot_call])
         with pytest.raises(TypeError):
             full_potential(simsys, forces)
 

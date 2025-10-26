@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from molecsim.system.data import SystemData, SystemProperties
-from molecsim.system.potentials import coulomb, lennard_jones
+from molecsim.data.data import SystemData
+from molecsim.data.properties import SystemProperties
+from molecsim.physics.potentials import coulomb, lennard_jones
 
 
 def test_coulomb_single_molecule(mock_props):
@@ -30,9 +31,6 @@ def test_coulomb_two_molecules(mock_props):
 
     positions2 = np.array([[3.0, 0.0, 0.0], [4.0, 0.0, 0.0]], dtype=np.float64)
     charges2 = np.array([-1.0, 1.0], dtype=np.float64)
-    data2 = SystemData.as_owner(
-        atoms=["C", "D"], positions=positions2, charges=charges2
-    )
 
     # Combine positions and charges into a single SystemData
     combined_positions = np.concatenate([positions1, positions2], axis=0)
