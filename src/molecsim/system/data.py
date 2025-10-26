@@ -18,6 +18,8 @@ type FloatPrecision = np.float64
 type StructureArray = npt.NDArray[FloatPrecision]
 type StructureView = StructureArray
 
+NO_SYMBOL: str = "NotFound"
+
 
 class SystemData:
     """Contains Data encoded for simulation system usage."""
@@ -32,7 +34,7 @@ class SystemData:
         self._charges: StructureArray | StructureView = np.zeros(n, dtype=FLOAT_DTYPE)
         self._atoms: npt.NDArray[INT_DTYPE] = np.zeros(n, dtype=INT_DTYPE)
         self._atom_str_to_int: dict[str, int] = {}
-        self._atom_int_to_str: npt.NDArray[np.object_] = np.full(256, "NotFound")
+        self._atom_int_to_str: npt.NDArray[np.object_] = np.full(256, NO_SYMBOL)
 
         self._first_empty: int = 0
         self._start_index: int = 0
@@ -205,7 +207,8 @@ class SystemData:
 
     @property
     def symbols(self):
-        return self._atom_int_to_str.copy()
+        all_symbols = self._atom_int_to_str.copy()
+        return all_symbols[np.where(all_symbols != NO_SYMBOL)]
 
 
 class StructureNode:
