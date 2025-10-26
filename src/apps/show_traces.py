@@ -39,7 +39,7 @@ def main() -> None:
     rng = RNG(seed)
 
     props = SystemProperties(
-        molecule_list=molecule_list,
+        molecules=molecule_list,
         box=np.asarray(args.box, dtype=float),
         temperature=args.temperature,
     )
