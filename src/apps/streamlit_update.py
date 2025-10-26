@@ -22,6 +22,10 @@ import pickle
 from pathlib import Path
 from typing import Any, Callable, Sequence, Tuple
 
+import csv
+import io
+from datetime import datetime
+
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
@@ -35,7 +39,7 @@ except Exception:
 
 
 # ---- Your project imports (from the CLI example) ----
-from molecsim.system.calculations import calculate_potential
+from molecsim.system.calculations import all_rdfs, calculate_potential
 from molecsim.system.data import make_potcall, SystemForces, SystemProperties
 from molecsim.system.mutate import mutate_rotate, mutate_translate, propose_new
 from molecsim.system.potentials import coulomb, lennard_jones
@@ -109,7 +113,112 @@ def step_once(
     stats["trials"] += 1
 
 
-# ------------------------- Session state & worker management -------------------------
+def _pickle_sim_bytes() -> bytes:
+    """Serialize current sim under lock to bytes for download."""
+    with st.session_state.worker_lock:
+        bio = io.BytesIO()
+        pickle.dump(st.session_state.sim, bio, protocol=pickle.HIGHEST_PROTOCOL)
+        return bio.getvalue()
+
+
+def _save_sim_to_path(path: str) -> None:
+    """Serialize current sim under lock to a server path."""
+    with st.session_state.worker_lock:
+        with open(path, "wb") as f:
+            pickle.dump(st.session_state.sim, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def _rdf_record_single_snapshot(num_bins: int):
+    """Compute one RDF snapshot via your module and fold into accumulators."""
+    bins, snap = all_rdfs(st.session_state.sim, num_bins)
+
+    if st.session_state.rdf_bins_edges is None or len(
+        st.session_state.rdf_bins_edges
+    ) != len(bins):
+        st.session_state.rdf_bins_edges = bins
+        st.session_state.rdf_accum = {}
+        st.session_state.rdf_samples = 0
+
+    for key, h in snap.items():
+        if (
+            key not in st.session_state.rdf_accum
+            or st.session_state.rdf_accum[key].shape != h.shape
+        ):
+            st.session_state.rdf_accum[key] = np.zeros_like(h, dtype=float)
+        st.session_state.rdf_accum[key] += h
+
+    st.session_state.rdf_samples += 1
+
+
+def _rdf_plot() -> go.Figure | None:
+    bins = st.session_state.rdf_bins_edges
+    if (
+        bins is None
+        or st.session_state.rdf_samples == 0
+        or not st.session_state.rdf_accum
+    ):
+        return None
+
+    centers = 0.5 * (bins[:-1] + bins[1:])
+    fig = go.Figure()
+    for (a, b), acc in sorted(st.session_state.rdf_accum.items()):
+        y = acc / max(st.session_state.rdf_samples, 1)  # mean counts per sample
+        fig.add_trace(go.Scatter(x=centers, y=y, mode="lines", name=f"{a}-{b}"))
+    fig.update_layout(
+        title=f"RDF (mean counts; bins={len(bins) - 1}, samples={st.session_state.rdf_samples})",
+        xaxis_title="r (Å)",
+        yaxis_title="counts (unnormalized)",
+        margin=dict(l=0, r=0, t=40, b=0),
+    )
+    return fig
+
+
+def _species_counts(sim) -> dict[str, int]:
+    data = sim.data
+    return {
+        s: int(np.sum(data.atoms == data.atom_str_to_ids([s])[0])) for s in data.symbols
+    }
+
+
+def _rdf_csv_bytes() -> bytes:
+    """CSV with raw accumulated counts per pair and bin.
+
+    Columns: bin, r_left, r_right, r_center, <A-B>, <A'-B'>, ...
+    """
+    with st.session_state.worker_lock:
+        bins = st.session_state.rdf_bins_edges
+        accum = st.session_state.rdf_accum
+        samples = int(st.session_state.rdf_samples)
+
+        if bins is None or not accum or samples == 0:
+            raise ValueError("No RDF data to export yet.")
+
+        pairs = sorted(accum.keys())
+
+        # basic bin geometry
+        centers = 0.5 * (bins[:-1] + bins[1:])
+        nbins = len(centers)
+
+        # write wide-format csv
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        header = ["bin", "r_left", "r_right", "r_center"] + [
+            f"{a}-{b}" for (a, b) in pairs
+        ]
+        w.writerow(header)
+
+        for k in range(nbins):
+            row = [k, float(bins[k]), float(bins[k + 1]), float(centers[k])]
+            row.extend([int(accum[(a, b)][k]) for (a, b) in pairs])
+            w.writerow(row)
+
+    return buf.getvalue().encode("utf-8")
+
+
+def _rdf_save_csv_to_path(path: str) -> None:
+    data = _rdf_csv_bytes()
+    with open(path, "wb") as f:
+        f.write(data)
 
 
 def ensure_state() -> None:
@@ -144,10 +253,39 @@ def ensure_state() -> None:
     st.session_state.worker_stop_evt = threading.Event()
     st.session_state.worker_lock = threading.Lock()
     st.session_state.worker_thread: threading.Thread | None = None
-    st.session_state.worker_batch = 500  # steps per inner loop
+    st.session_state.worker_batch = 500
 
     # Manual
     st.session_state.manual_steps = 200
+
+    # Saving
+    st.session_state.setdefault(
+        "save_filename", f"state_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pickle"
+    )
+
+    # RDF recorder state
+    st.session_state.rdf_recording = False
+    st.session_state.rdf_bins_count = 200
+    st.session_state.rdf_bins_edges = None
+    st.session_state.rdf_accum = {}
+    st.session_state.rdf_samples = 0
+
+    # RDF sampling config
+    st.session_state.rdf_stride = 100
+    st.session_state.rdf_auto_sample = True
+    st.session_state.rdf_last_sample_step = 0
+
+    st.session_state.setdefault(
+        "rdf_csv_filename",
+        f"rdf_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+    )
+    st.session_state.setdefault("rdf_csv_normalize", True)
+
+    # Coefficient editor defaults
+    st.session_state.setdefault("coef_reset_ema_on_apply", False)
+
+    # Show Quickstart on first run
+    st.session_state.setdefault("show_quickstart", True)
 
 
 def worker_loop() -> None:
@@ -186,6 +324,20 @@ def worker_loop() -> None:
 
                 for _ in range(int(st.session_state.worker_batch)):
                     step_once(sim, forces, rng, muts, coeffs, ema, alpha, stats)
+
+                    # ★ Auto-sample RDF every N steps while recording
+                    if (
+                        st.session_state.rdf_recording
+                        and st.session_state.rdf_auto_sample
+                    ):
+                        stride = max(1, int(st.session_state.rdf_stride))
+                        now_steps = int(st.session_state.stats.get("trials", 0))
+                        last = int(st.session_state.rdf_last_sample_step)
+                        if now_steps - last >= stride:
+                            _rdf_record_single_snapshot(
+                                int(st.session_state.rdf_bins_count)
+                            )
+                            st.session_state.rdf_last_sample_step = now_steps
         except Exception:
             # Never crash the worker; back off briefly
             time.sleep(0.02)
@@ -253,7 +405,7 @@ def update_and_render(plot_area) -> None:
     # IMPORTANT: No explicit key; render exactly once per rerun.
     plot_area.plotly_chart(
         fig,
-        use_container_width=True,
+        width="stretch",
         key="__main_plot__",  # stable element identity across reruns
         config={"scrollZoom": True},  # optional: keep scroll-to-zoom enabled
     )
@@ -275,7 +427,31 @@ ensure_state()
 st.title("Molecular MC — Live Viewer (decoupled)")
 
 # Single placeholder for chart — created each rerun, not stored in session_state
-plot_area = st.empty()
+main_col, right_col = st.columns([5, 2], gap="large")
+with main_col:
+    plot_area = st.empty()  # unchanged usage below
+
+with right_col:
+    with st.expander("Quickstart & Help", expanded=st.session_state.show_quickstart):
+        st.markdown(
+            """
+**What to do**
+1. **Initialize** a system in *Initialize / Load* (Gaussian files, counts, box, T).
+2. Press **Start** in *Autoplay* to run MC in the background.
+3. Adjust **Mutation coefficients** live in the sidebar editor to get desired acceptence rates.
+4. Let it run for an extended period to get to equilibrium.
+5. Use **RDF Recorder** → *Start* to accumulate snapshots, tune *stride* & *bins*.
+6. **Export** RDF data via *Download CSV* or export simulation state via **Save current state** if you want to inspect it externally.
+
+**Tips**
+- Manual stepping runs exactly once per click and then redraws.
+- Autoplay + Auto-sample ⇒ RDF snapshots are tied to step count.
+            """
+        )
+        # remember preference
+        st.session_state.show_quickstart = st.checkbox(
+            "Show this panel on startup", value=st.session_state.show_quickstart
+        )
 
 with st.sidebar:
     st.header("Display")
@@ -293,10 +469,10 @@ with st.sidebar:
     st.caption("Compute runs in a background thread; UI refresh is timer-driven.")
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Start", use_container_width=True, type="primary"):
+        if st.button("Start", width="stretch", type="primary"):
             start_worker()
     with c2:
-        if st.button("Stop", use_container_width=True):
+        if st.button("Stop", width="stretch"):
             stop_worker()
     st.number_input(
         "Worker batch size (steps/cycle)",
@@ -317,7 +493,7 @@ with st.sidebar:
         key="manual_steps",  # use key, no explicit value
         help="When not using autoplay, run this many steps then redraw once.",
     )
-    if st.button("Run steps, then redraw", use_container_width=True):
+    if st.button("Run steps, then redraw", width="stretch"):
         if st.session_state.initialized:
             with st.session_state.worker_lock:
                 for _ in range(st.session_state.manual_steps):
@@ -334,6 +510,50 @@ with st.sidebar:
         # Rendering happens once at the bottom of the script.
 
     st.divider()
+    st.header("Mutation mix / coefficients")
+
+    # Build editable rows (one per mutation function)
+    muts = st.session_state.mutation_functions
+    coefs = st.session_state.function_coefficients
+    rows = [
+        {
+            "Mutation": getattr(fn, "__name__", str(fn)),
+            "Coefficient": float(coefs[i]) if i < len(coefs) else 1.0,
+        }
+        for i, fn in enumerate(muts)
+    ]
+
+    edited = st.data_editor(
+        rows,
+        num_rows="fixed",  # no adding/removing rows
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Mutation": st.column_config.TextColumn(disabled=True),
+            "Coefficient": st.column_config.NumberColumn(
+                min_value=0.0, step=0.05, format="%.4f"
+            ),
+        },
+        key="__coef_editor__",
+    )
+
+    if st.button("Apply", width="stretch"):
+        # Extract and sanitize
+        new = np.array(
+            [max(0.0, float(r["Coefficient"])) for r in edited],
+            dtype=float,
+        )
+
+        # Commit under lock; keep EMA length consistent
+        with st.session_state.worker_lock:
+            st.session_state.function_coefficients = new
+            if st.session_state.coef_reset_ema_on_apply or len(
+                st.session_state.recent_acceptance
+            ) != len(new):
+                st.session_state.recent_acceptance = np.ones(len(new), dtype=float)
+
+        st.success("Updated mutation coefficients.")
+    st.divider()
     st.header("Initialize / Load")
 
     st.subheader("Build system from Gaussian inputs")
@@ -345,7 +565,7 @@ with st.sidebar:
     temperature = st.number_input("Temperature (K)", min_value=0.0, value=298.15)
     seed = st.number_input("Seed", min_value=0, value=10, step=1)
 
-    if st.button("Build system", use_container_width=True):
+    if st.button("Build system", width="stretch"):
         try:
             files = [s.strip() for s in files_text.split(",") if s.strip()]
             numbers = [int(s.strip()) for s in numbers_text.split(",") if s.strip()]
@@ -386,7 +606,7 @@ with st.sidebar:
     pick_path = st.text_input("Or load from path", value="")
     c_up, c_path = st.columns(2)
     with c_up:
-        if st.button("Load uploaded", use_container_width=True, disabled=(up is None)):
+        if st.button("Load uploaded", width="stretch", disabled=(up is None)):
             try:
                 stop_worker()
                 obj = pickle.load(up)
@@ -410,7 +630,7 @@ with st.sidebar:
     with c_path:
         if st.button(
             "Load from path",
-            use_container_width=True,
+            width="stretch",
             disabled=(pick_path.strip() == ""),
         ):
             try:
@@ -436,6 +656,52 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Failed to load {pick_path}: {e}")
 
+    st.subheader("Save current state")
+
+    st.session_state.save_filename = st.text_input(
+        "Filename",
+        value=st.session_state.save_filename,
+        help="Server-side path for 'Save to path'.",
+    )
+
+    c_spath, c_sdl = st.columns(2)
+    with c_spath:
+        if st.button(
+            "Save to path",
+            width="stretch",
+            disabled=not st.session_state.initialized,
+        ):
+            try:
+                if not st.session_state.save_filename.strip():
+                    raise ValueError("Filename is empty.")
+                _save_sim_to_path(st.session_state.save_filename.strip())
+                st.success(f"Saved → {st.session_state.save_filename}")
+            except Exception as e:
+                st.error(f"Failed to save: {e}")
+
+    with c_sdl:
+        if st.session_state.initialized:
+            try:
+                dl_bytes = _pickle_sim_bytes()
+                st.download_button(
+                    "Download pickle",
+                    data=dl_bytes,
+                    file_name=st.session_state.save_filename or "state.pickle",
+                    mime="application/octet-stream",
+                    width="stretch",
+                )
+            except Exception as e:
+                st.error(f"Download failed: {e}")
+        else:
+            st.download_button(
+                "Download pickle",
+                data=b"",
+                file_name="state.pickle",
+                disabled=True,
+                width="stretch",
+            )
+
+
 # ---------- Single render per rerun ----------
 if st.session_state.initialized and st.session_state.fig is not None:
     update_and_render(plot_area)
@@ -449,6 +715,125 @@ st.markdown(
     f"**Recent EMA:** {', '.join(f'{v:.3f}' for v in st.session_state.recent_acceptance)} &nbsp;&nbsp; "
     f"**Rate:** {rate:.3f}"
 )
+
+st.divider()
+with st.expander("RDF Recorder (accumulates snapshots)", expanded=False):
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
+
+    with c1:
+        if st.button(
+            "Start", width="stretch", disabled=not st.session_state.initialized
+        ):
+            st.session_state.rdf_recording = True
+
+    with c2:
+        if st.button("Stop", width="stretch"):
+            st.session_state.rdf_recording = False
+
+    with c3:
+        if st.button("Reset", width="stretch"):
+            st.session_state.rdf_accum = {}
+            st.session_state.rdf_samples = 0
+            st.session_state.rdf_bins_edges = None
+            st.session_state.rdf_last_sample_step = int(
+                st.session_state.stats.get("trials", 0)
+            )
+
+    with c4:
+        st.number_input(
+            "Bins",
+            min_value=10,
+            max_value=5000,
+            step=10,
+            key="rdf_bins_count",
+            help="Number of histogram bins for r (Å).",
+        )
+
+    c_stride, c_auto = st.columns([1, 1])
+    with c_stride:
+        st.number_input(
+            "Sample stride (steps)",
+            min_value=1,
+            max_value=1_000_000,
+            step=10,
+            key="rdf_stride",
+            help="Record one RDF snapshot every N MC steps.",
+        )
+    with c_auto:
+        st.checkbox(
+            "Auto-sample in worker",
+            key="rdf_auto_sample",
+            help="If off, a snapshot is taken on each UI redraw while recording.",
+        )
+
+    # Manual record-on-rerun mode (when auto-sample is OFF)
+    if (
+        st.session_state.initialized
+        and st.session_state.rdf_recording
+        and not st.session_state.rdf_auto_sample
+    ):
+        try:
+            with st.session_state.worker_lock:
+                _rdf_record_single_snapshot(int(st.session_state.rdf_bins_count))
+        except Exception as e:
+            st.error(f"RDF recording failed: {e}")
+
+    rdf_fig = _rdf_plot()
+    if rdf_fig is not None:
+        st.plotly_chart(rdf_fig, width="stretch", key="__rdf_plot__")
+        st.caption(
+            f"Samples accumulated: {st.session_state.rdf_samples} · "
+            f"Pairs: {len(st.session_state.rdf_accum)}"
+        )
+    else:
+        st.caption("No RDF data yet. Click **Start** to begin accumulating.")
+
+        st.markdown("**Export**")
+    st.session_state.rdf_csv_filename = st.text_input(
+        "CSV filename", value=st.session_state.rdf_csv_filename
+    )
+    c_csv_path, c_csv_dl = st.columns(2)
+    with c_csv_path:
+        if st.button(
+            "Save CSV to path",
+            width="stretch",
+            disabled=(
+                st.session_state.rdf_bins_edges is None
+                or st.session_state.rdf_samples == 0
+            ),
+        ):
+            try:
+                _rdf_save_csv_to_path(
+                    st.session_state.rdf_csv_filename,
+                )
+                st.success(f"Saved → {st.session_state.rdf_csv_filename}")
+            except Exception as e:
+                st.error(f"Failed to save CSV: {e}")
+
+    with c_csv_dl:
+        try:
+            csv_bytes = _rdf_csv_bytes()
+            st.download_button(
+                "Download CSV",
+                data=csv_bytes,
+                file_name=st.session_state.rdf_csv_filename or "rdf.csv",
+                mime="text/csv",
+                width="stretch",
+                disabled=(
+                    st.session_state.rdf_bins_edges is None
+                    or st.session_state.rdf_samples == 0
+                ),
+            )
+        except Exception:
+            st.download_button(
+                "Download CSV",
+                data=b"",
+                file_name=st.session_state.rdf_csv_filename or "rdf.csv",
+                mime="text/csv",
+                width="stretch",
+                disabled=True,
+            )
+
 
 # ---------- Non-blocking, browser-driven rerun via plugin ----------
 if st.session_state.worker_running and st.session_state.initialized:
