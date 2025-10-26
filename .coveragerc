@@ -1,0 +1,22 @@
+[run]
+source =
+    src/molecsim
+omit =
+    */tests/*
+    */venv/* */.venv/* */build/* */dist/*
+    src/molecsim/experimental/*
+    src/molecsim/utils/plot.py
+branch = True
+
+# collect which test touched each line (nice in HTML)
+dynamic_context = test_function
+
+[report]
+show_missing = True
+precision = 1
+# optional thresholds
+# fail_under = 85
+
+[html]
+directory = htmlcov
+show_contexts = True
