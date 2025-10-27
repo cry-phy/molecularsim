@@ -1,4 +1,4 @@
-"""Streamlit app for live tracking a molecular MC system (function-based refactor).
+"""Streamlit app for live tracking a molecular MC system.
 
 Install (inside your project):
     pip install .[apps]
@@ -48,6 +48,7 @@ def build_system(
     box: Sequence[float],
     temperature: float,
     seed: int = 10,
+    periodic: bool = True,
 ) -> Tuple[
     Any,
     SystemProperties,
@@ -62,7 +63,7 @@ def build_system(
     box_arr = np.asarray(box, dtype=float)
     temp = float(temperature)
 
-    props = SystemProperties(molecule_list, box_arr, temp)
+    props = SystemProperties(molecule_list, box_arr, temp, periodic)
     sim = randomized_system(props, rng)
 
     coulomb_cont = make_potcall(coulomb, props)
@@ -109,8 +110,8 @@ def step_once(
 # --------------------------------------------------------------------------------------
 def configure_page() -> None:
     """Configure Streamlit page and title."""
-    st.set_page_config(page_title="Molecular MC — Live Viewer", layout="wide")
-    st.title("Molecular MC — Live Viewer (function-based)")
+    st.set_page_config(page_title="Molecular MC", layout="wide")
+    st.title("Molecular MC — Live Viewer")
 
 
 def ensure_state() -> None:
@@ -570,7 +571,12 @@ def sidebar_initialize_or_load() -> None:
     numbers_text = st.text_input("Counts (integers, comma-separated)", value="10")
     box_text = st.text_input("Box (Å, 'Lx,Ly,Lz')", value="30,30,30")
     temperature = st.number_input("Temperature (K)", min_value=0.0, value=298.15)
-    seed = st.number_input("Seed", min_value=0, value=10, step=1)
+    seed = st.number_input(
+        "Seed", min_value=0, value=int(np.random.randint(int(1e6), size=1)), step=1
+    )
+    periodic = st.toggle(
+        "Use PBC", value=True, help="Use periodic coundary conditions when on."
+    )
 
     if st.button("Build system", use_container_width=True):
         try:
@@ -586,7 +592,7 @@ def sidebar_initialize_or_load() -> None:
 
             stop_worker()
             sim, props, forces, rng, fig, updater = build_system(
-                files, numbers, box, temperature, seed
+                files, numbers, box, temperature, seed, periodic
             )
             _assign_new_system(sim, props, forces, rng, fig, updater)
         except Exception as e:
