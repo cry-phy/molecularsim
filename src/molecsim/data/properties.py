@@ -1,18 +1,22 @@
 from __future__ import annotations
+from molecsim.data.chargetable import ChargeTable
 from molecsim.data.data import StructureArray
 
 import typing
 
+from molecsim.data.ljtable import LJTable
+from molecsim.data.typeregistry import TypeRegistry
+
 if typing.TYPE_CHECKING:
-    from molecsim.system.molecule import Molecule
+    from molecsim.data.molecule import Molecule
 
 
 class SystemProperties:
     """Immutable wrapper for calculating and storing system properties.
 
     Stores NVT Parameters:
-        N: Number molecules (Dict of types)
-        V: Volume through box boundaries (Angstrom)
+        N: Number molecules
+        V: Volume through box boundaries
         T: Kelvin
     """
 
@@ -23,22 +27,24 @@ class SystemProperties:
     # 1/(4*pi*epsilon_0) =
     _coulomb_coeff = 332.06371  # kcal*A/mol/e²
 
-    # LJ parameters (TIP3P oxygen):
-    _LJ_A = 5.8200266e5  # kcal*A¹²/mol
-    _LJ_B = 5.9505497e2  # kcal*A⁶/mol
-
     def __init__(
         self,
         molecules: dict[Molecule, int],
         box: StructureArray,
         temperature: float,
-        periodic: bool = True,
+        periodic: bool,
+        registry: TypeRegistry,
+        qtable: ChargeTable,
+        ljtable: LJTable,
     ) -> None:
         """Initialize data."""
         self._molecules: dict[Molecule, int] = molecules  # Count
         self._box: StructureArray = box  # Angstrom
         self._temperature: float = temperature  # Kelvin
-        self.periodic: bool = periodic
+        self._periodic: bool = periodic
+        self._registry: TypeRegistry = registry
+        self._qtable: ChargeTable = qtable
+        self._ljtable: LJTable = ljtable
 
     @property
     def box(self):
@@ -56,6 +62,11 @@ class SystemProperties:
         return self._temperature
 
     @property
+    def periodic(self):
+        """The periodic property."""
+        return self._periodic
+
+    @property
     def heat_energy(self):
         """The heat_energy property."""
         return self._temperature * self._k_b
@@ -66,6 +77,28 @@ class SystemProperties:
         return self._coulomb_coeff
 
     @property
-    def lj_params(self):
-        """The lj_params property."""
-        return self._LJ_A, self._LJ_B
+    def registry(self):
+        """TypeRegistry (read-only handle)."""
+        return self._registry
+
+    @property
+    def types(self) -> list[str]:
+        """Canonical type names in registry order."""
+        return list(self._registry.types)
+
+    def type_index(self, name: str) -> int:
+        """Type name -> registry index."""
+        return self._registry.index_of(name)
+
+    def type_name(self, idx: int) -> str:
+        """Registry index -> type name."""
+        return self._registry.types[idx]
+
+    def charge_of(self, t: str) -> float:
+        """Charge of a single type (by name or index)."""
+        return self._qtable.charge_of_type(str(t))
+
+    def lj_for(self, ti: int, tj: int) -> tuple[float, float]:
+        """A_ij, B_ij for a single pair."""
+        A, B = self._ljtable.table[ti, tj]
+        return A, B

@@ -1,4 +1,4 @@
-from molecsim.data.data import SystemData, FloatPrecision, FLOAT_DTYPE
+from molecsim.data.data import INT_DTYPE, SystemData, FloatPrecision, FLOAT_DTYPE
 from molecsim.data.molecule import Molecule, StructureNode
 from typing import Protocol
 import numpy.typing as npt
@@ -8,11 +8,13 @@ import argparse
 import os
 import re
 
+from molecsim.data.properties import SystemProperties
+
 
 class Parser(Protocol):
     """Molecule Parser signature."""
 
-    def __call__(self, path: str) -> Molecule:
+    def __call__(self, path: str, props: SystemProperties) -> Molecule:
         """Make Placeholder callable."""
         ...
 
@@ -20,90 +22,11 @@ class Parser(Protocol):
 _FLOAT_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 
 
-def _locate_comment_block(lines: list[str], geom_idx: int) -> list[str]:
-    """Return the title/comment block lines preceding the charge/multiplicity line at `geom_idx`.
-
-    Gaussian layout (typical):
-        [link0]*, route
-        <blank>
-        TITLE / COMMENT (>=1 lines)
-        <blank>
-        charge multiplicity
-        geometry...
-    We walk backward from geom_idx to find the blank that ends the title block.
-    """
-    # Find the last non-blank line before the charge/multiplicity line
-    i = geom_idx - 1
-    while i >= 0 and lines[i].strip() == "":
-        i -= 1
-    # Now scan backward to the previous blank line
-    j = i
-    while j >= 0 and lines[j].strip() != "":
-        j -= 1
-    # Title/comment block is lines[j+1 : i+1]
-    start = j + 1
-    end = i + 1
-    if start < 0:
-        start = 0
-    return lines[start:end]
-
-
-def _parse_charges_from_comment(
-    comment_lines: list[str], natoms: int
-) -> np.ndarray | None:
-    """Look for '@charges:' (or '@charges =') marker in the title/comment block and parse floats.
-
-    Accept either:
-        @charges: q1 q2 q3 ...
-    or
-        @charges = [ q1, q2, ... ]
-
-    Returns np.ndarray(FLOAT_DTYPE) of length natoms, or None if not present / mismatch.
-    """
-    if not comment_lines:
-        return None
-
-    blob = "\n".join(comment_lines)
-
-    # Explicit marker (case-insensitive)
-    m_marker = re.search(r"@charges\s*[:=]", blob, flags=re.IGNORECASE)
-    if not m_marker:
-        return None
-
-    # Prefer bracketed block after the marker if present (allows multiline)
-    m_brack = re.search(
-        r"@charges\s*[:=][^\[\]\n]*\[(.*?)\]",
-        blob,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if m_brack:
-        body = m_brack.group(1)
-        nums = re.findall(_FLOAT_RE, body)
-    else:
-        # Take numbers from the marker line onward until the next blank line
-        tail = blob[m_marker.start() :]
-        tail = tail.split("\n\n", 1)[0]
-        nums = re.findall(_FLOAT_RE, tail)
-
-    if not nums:
-        return None
-
-    arr = np.asarray([float(x) for x in nums], dtype=FLOAT_DTYPE)
-    if arr.size != natoms:
-        # Length mismatch: ignore silently (non-fatal) to stay robust in batch usage
-        return None
-    return arr
-
-
-# ---------- Geometry parsing ----------
-
-
-def parse_z_matrix(path: str) -> Molecule:
+def parse_z_matrix(path: str, props: SystemProperties) -> Molecule:
     """Parse a Gaussian input file (Z-Matrix or Cartesian) into structure and Molecule objects."""
     if not os.path.exists(path):
         raise ValueError(f"Provided file ({path}) does not exist.")
 
-    # Detect file extension and determine correct parsing function
     _, ext = os.path.splitext(path)
     ext = ext.lower()
     parsing_function = EXTENSION_MAPPING.get(ext)
@@ -111,7 +34,7 @@ def parse_z_matrix(path: str) -> Molecule:
         supported = ", ".join(EXTENSION_MAPPING.keys())
         raise ValueError(f"Unsupported file extension '{ext}'. Supported: {supported}")
 
-    return parsing_function(path)
+    return parsing_function(path, props)
 
 
 def detect_geometry_type(line: str) -> str:
@@ -330,21 +253,22 @@ def _parse_zmatrix_block(
     return atoms, coords_arr, charges_arr, multiplicity_arr, fragment_arr, nodes
 
 
-def parse_com(path: str) -> Molecule:
-    """Parse Gaussian input files (.com/.gjf), supporting Cartesian and Z-matrix geometries.
+def parse_com(path: str, props: SystemProperties) -> Molecule:
+    """Parse Gaussian .com/.gjf and build a Molecule using registry/charges from props.
 
-    Also supports overriding per-atom charges from the TITLE/COMMENT block using:
-        @charges: q1 q2 ...
-    or
-        @charges = [ q1, q2, ... ]
+    - Uses props.registry for type indices.
+    - Uses props.charge_of(type_name) per atom (ignores any @charges in the file).
+    - Supports Cartesian and Z-matrix geometries.
     """
     data: SystemData | None = None
+    nodes: list[StructureNode] | None = None
 
-    # Keep blank lines; we need them to locate the title/comment block reliably
-    with open(path) as file:
-        lines = [line.rstrip("\n") for line in file]
+    # keep blanks (title/comment detection)
+    with open(path, encoding="utf-8") as f:
+        lines = [ln.rstrip("\n") for ln in f]
 
-    # Locate the charge/multiplicity line (e.g., "0 1")
+    # find charge/multiplicity line (e.g. "0 1")
+    geom_start = 0
     geom_line_idx: int | None = None
     for i, line in enumerate(lines):
         if re.match(r"^\s*[+-]?\d+\s+[+-]?\d+\s*$", line):
@@ -354,35 +278,24 @@ def parse_com(path: str) -> Molecule:
     if geom_line_idx is None:
         raise ValueError(f"Could not find charge/multiplicity line in {path}")
 
-    # Extract the comment block to look for @charges
-    comment_lines = _locate_comment_block(lines, geom_line_idx)
-
-    # Determine geometry type by peeking at the first geom line
-    # (after the charge/multiplicity line)
     if geom_start >= len(lines):
         raise ValueError(f"No geometry found after charge/multiplicity in {path}")
 
     first_geom = lines[geom_start].strip().split()
 
-    nodes: list[StructureNode] | None = None
-
-    # If 2-3 floats after element: Cartesian
+    # --- parse geometry ---
     if len(first_geom) >= 4 and all(
         re.match(rf"^{_FLOAT_RE}$", p) for p in first_geom[1:4]
     ):
+        # Cartesian block
         try:
-            atoms, positions, charges, _, _ = _parse_cartesian_block(lines, geom_start)
-            data = SystemData.as_owner(atoms, positions, charges)
+            atoms, positions, _, _, _ = _parse_cartesian_block(lines, geom_start)
         except Exception as e:
             raise RuntimeError("Could not parse Cartesian geometry.") from e
-
-    # Single atom name: Z-matrix
     elif len(first_geom) == 1:
+        # Z-matrix block
         try:
-            atoms, positions, charges, _, _, nodes = _parse_zmatrix_block(
-                lines, geom_start
-            )
-            data = SystemData.as_owner(atoms, positions, charges)
+            atoms, positions, _, _, _, nodes = _parse_zmatrix_block(lines, geom_start)
         except Exception as e:
             raise RuntimeError("Could not parse Z-matrix geometry.") from e
     else:
@@ -390,23 +303,18 @@ def parse_com(path: str) -> Molecule:
             "Unrecognized geometry format (neither Cartesian nor Z-matrix)."
         )
 
-    if data is None:
-        raise RuntimeError("Could not load data.")
+    type_ids = np.asarray([props.type_index(a) for a in atoms], dtype=INT_DTYPE)
+    pos = np.asarray(positions, dtype=FLOAT_DTYPE)
 
-    # Comment-block charges override (order preserved)
-    natoms = data.positions.shape[0]
-    comment_charges = _parse_charges_from_comment(comment_lines, natoms)
-    if comment_charges is not None:
-        data.charges[:] = comment_charges
+    qs = np.asarray([props.charge_of(a) for a in atoms], dtype=FLOAT_DTYPE)
 
+    data = SystemData.as_owner(types=type_ids, positions=pos, charges=qs)
     return Molecule(data, nodes)
 
 
 EXTENSION_MAPPING: dict[str, Parser] = {
     ".com": parse_com,
     ".gjf": parse_com,
-    # ".log": parse_log,   # could be added later
-    # ".fchk": parse_fchk, # could be added later
 }
 
 
