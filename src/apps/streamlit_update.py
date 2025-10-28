@@ -282,18 +282,27 @@ def save_sim_to_path(path: str) -> None:
             pickle.dump(st.session_state.sim, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def rdf_record_single_snapshot(num_bins: int) -> None:
-    """Accumulate one RDF snapshot into session accumulators."""
-    bins, snap = all_rdfs(st.session_state.sim, num_bins)
+import numpy as np
+import plotly.graph_objects as go
+import streamlit as st
 
+
+def rdf_record_single_snapshot(num_bins: int) -> None:
+    """Accumulate one RDF snapshot into session accumulators (raw counts)."""
+    bins, snap = all_rdfs(
+        st.session_state.sim, num_bins
+    )  # bins may be edges *or* centers
+
+    # (Re)initialize accumulators when binning changes
     if st.session_state.rdf_bins_edges is None or len(
         st.session_state.rdf_bins_edges
     ) != len(bins):
-        st.session_state.rdf_bins_edges = bins
+        st.session_state.rdf_bins_edges = np.asarray(bins, dtype=float)
         st.session_state.rdf_accum = {}
         st.session_state.rdf_samples = 0
 
     for key, h in snap.items():
+        h = np.asarray(h, dtype=float)
         if (
             key not in st.session_state.rdf_accum
             or st.session_state.rdf_accum[key].shape != h.shape
@@ -304,32 +313,118 @@ def rdf_record_single_snapshot(num_bins: int) -> None:
     st.session_state.rdf_samples += 1
 
 
+def _bin_geometry(bins: np.ndarray, counts_len: int):
+    """
+    Return (edges, centers, dr, shell_vol) consistent with counts length.
+    Detects if `bins` are centers (len == counts_len) or edges (len == counts_len+1).
+    Assumes ~uniform spacing if centers are given.
+    """
+    bins = np.asarray(bins, dtype=float)
+
+    if len(bins) == counts_len + 1:
+        # bins are edges
+        edges = bins
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        dr = np.diff(edges)
+    elif len(bins) == counts_len:
+        # bins are centers -> infer edges assuming uniform spacing
+        centers = bins
+        # robust spacing: median to tolerate small FP noise
+        dr_scalar = float(np.median(np.diff(centers))) if len(centers) > 1 else 1.0
+        edges = np.empty(counts_len + 1, dtype=float)
+        edges[1:-1] = 0.5 * (centers[:-1] + centers[1:])
+        edges[0] = centers[0] - 0.5 * dr_scalar
+        edges[-1] = centers[-1] + 0.5 * dr_scalar
+        dr = np.diff(edges)
+    else:
+        raise ValueError(
+            f"Incompatible bins/counts: len(bins)={len(bins)}, counts_len={counts_len}."
+            " Expected len(bins)==counts_len or counts_len+1."
+        )
+
+    shell_vol = 4.0 * np.pi * centers**2 * dr  # per-bin spherical shell volumes
+    return edges, centers, dr, shell_vol
+
+
 def rdf_plot() -> go.Figure | None:
-    """Return a Plotly figure of the averaged RDF, if available."""
+    """Return a Plotly figure of averaged, normalized RDF g_AB(r)."""
     with st.session_state.worker_lock:
         bins = st.session_state.rdf_bins_edges
         samples = int(st.session_state.rdf_samples)
         accum = {k: v.copy() for k, v in st.session_state.rdf_accum.items()}
+
     if bins is None or samples == 0 or not accum:
         return None
-    if (
-        bins is None
-        or st.session_state.rdf_samples == 0
-        or not st.session_state.rdf_accum
-    ):
-        return None
 
-    centers = 0.5 * (bins[:-1] + bins[1:])
+    # System numbers for normalization
+    sim = st.session_state.sim
+    V = float(np.prod(sim.properties.box))
+    atoms = sim.data.atoms
+    to_id = sim.data.atom_str_to_ids
+
+    def normalize_counts(pair, counts, shell_vol):
+        a, b = pair
+        ida = to_id([a])[0]
+        idb = to_id([b])[0]
+        NA = int(np.count_nonzero(atoms == ida))
+        NB = int(np.count_nonzero(atoms == idb))
+        if NA == 0 or NB == 0:
+            return np.zeros_like(shell_vol)
+
+        if ida == idb:
+            rhoB = (NA - 1) / V  # exclude self for A==A
+            norm = NA * rhoB
+        else:
+            rhoB = NB / V
+            norm = NA * rhoB
+
+        mean_counts = counts / max(samples, 1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            g = mean_counts / (norm * shell_vol)
+            g[~np.isfinite(g)] = 0.0
+        return g
+
+    # Build curves and compute a robust y-cap
+    curves = []
+    all_vals = []
+
+    for (a, b), counts in sorted(accum.items()):
+        counts = np.asarray(counts, dtype=float)
+        _, centers, _, shell_vol = _bin_geometry(bins, counts_len=len(counts))
+        g = normalize_counts((a, b), counts, shell_vol)
+        curves.append((f"{a}-{b}", centers, g))
+        all_vals.append(g[np.isfinite(g)])
+
+    if all_vals:
+        all_vals = np.concatenate(all_vals)
+        y_cap = float(np.nanpercentile(all_vals, 95)) * 1.15
+        if not np.isfinite(y_cap) or y_cap <= 0:
+            y_cap = 3.0
+    else:
+        y_cap = 3.0
+
+    # x-range: PBC-safe bulk view
+    r_max = 0.5 * float(np.min(sim.properties.box)) if sim.properties.periodic else None
+
     fig = go.Figure()
-    for (a, b), acc in sorted(st.session_state.rdf_accum.items()):
-        y = acc / max(st.session_state.rdf_samples, 1)  # mean counts per sample
-        fig.add_trace(go.Scatter(x=centers, y=y, mode="lines", name=f"{a}-{b}"))
-    fig.update_layout(
-        title=f"RDF (mean counts; bins={len(bins) - 1}, samples={st.session_state.rdf_samples})",
+    for name, x, y in curves:
+        # if r_max set, mask to that range
+        if r_max is not None:
+            m = (x >= 0.0) & (x <= r_max)
+            x, y = x[m], y[m]
+        fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=name))
+
+    layout = dict(
+        title=f"RDF (normalized g(r); bins={len(curves[0][1]) if curves else 0}, samples={samples})",
         xaxis_title="r (Å)",
-        yaxis_title="counts (unnormalized)",
+        yaxis_title="g(r)",
         margin=dict(l=0, r=0, t=40, b=0),
+        yaxis=dict(range=[0.0, y_cap]),
     )
+    if r_max is not None:
+        layout["xaxis"] = dict(range=[0.0, r_max])
+
+    fig.update_layout(**layout)
     return fig
 
 

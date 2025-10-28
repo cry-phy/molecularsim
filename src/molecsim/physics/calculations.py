@@ -1,5 +1,5 @@
 from __future__ import annotations
-from molecsim.data.data import SystemData, StructureArray, INT_DTYPE
+from molecsim.data.data import FLOAT_DTYPE, SystemData, StructureArray, INT_DTYPE
 from molecsim.data.molecule import Molecule
 from molecsim.data.properties import SystemProperties
 from molecsim.data.system import SimSystem
@@ -94,7 +94,7 @@ def molecule_potential(
 
 def all_rdfs(
     sim: SimSystem, num_bins: int
-) -> tuple[StructureArray, dict[tuple[str, str], npt.NDArray[INT_DTYPE]]]:
+) -> tuple[StructureArray, dict[tuple[str, str], StructureArray]]:
     """Generate all RDFs for a system."""
     return radial_distances(
         sim.data, sim.data.symbols, sim.data.symbols, sim.properties, num_bins
@@ -107,27 +107,62 @@ def radial_distances(
     atoms_b: Iterable[str],
     props: SystemProperties,
     num_bins: int,
-) -> tuple[StructureArray, dict[tuple[str, str], npt.NDArray[INT_DTYPE]]]:
-    """Calculate the distances between all atoms and bin them.
+) -> tuple[StructureArray, dict[tuple[str, str], StructureArray]]:
+    """Calculate g_AB(r): histogram pairs in r^2, then normalize to RDF."""
+    if props.periodic:
+        r_max = 0.5 * float(np.min(props.box))
+    else:
+        r_max = float(np.linalg.norm(props.box))
+    edges = np.linspace(0.0, r_max, num_bins + 1)
+    bins = 0.5 * (edges[:-1] + edges[1:])
+    dr = np.diff(edges)
+    shell_vol = 4.0 * np.pi * bins**2 * dr
+    squared_bins = edges**2
 
-    Since we commonly want the full distributions, we accept all distanfces calculations.
-    """
     idas = data.atom_str_to_ids(atoms_a)
     idbs = data.atom_str_to_ids(atoms_b)
 
-    rdfs = {}
-    bins = np.linspace(0, np.sum(props.box**2) ** 0.5, num=num_bins, endpoint=True)
-    # bin in squared space to avoid square N**2 square roots
-    squared_bins = bins**2
-
     r2 = distance_squares(data, data, props.box, props.periodic)
+
+    volume = float(np.prod(props.box))
+    rdfs: dict[tuple[str, str], StructureArray] = {}
+
     for ida, stra in zip(idas, atoms_a, strict=True):
         a_mask = data.atoms == ida
+        num_a = int(np.count_nonzero(a_mask))
+        if num_a == 0:
+            for strb in atoms_b:
+                rdfs[(stra, strb)] = np.zeros_like(bins, dtype=FLOAT_DTYPE)
+            continue
+
         for idb, strb in zip(idbs, atoms_b, strict=True):
             b_mask = data.atoms == idb
-            mask = a_mask[:, None] & b_mask[None, :]
-            distances_squared = r2[mask]
-            hist, _ = np.histogram(distances_squared, bins=squared_bins)
-            rdfs[stra, strb] = hist
+            num_b = int(np.count_nonzero(b_mask))
+            if num_b == 0:
+                rdfs[(stra, strb)] = np.zeros_like(bins, dtype=FLOAT_DTYPE)
+                continue
+
+            pair_mask = a_mask[:, None] & b_mask[None, :]
+            if ida == idb:
+                np.fill_diagonal(pair_mask, False)
+
+            d2 = r2[pair_mask]
+            keep = (d2 > 0.0) & (d2 < r_max * r_max)
+            d2 = d2[keep]
+
+            counts, _ = np.histogram(d2, bins=squared_bins)
+
+            if ida == idb:
+                rhob = (num_a - 1) / volume
+                norm = num_a * rhob
+            else:
+                rhob = num_b / volume
+                norm = num_a * rhob
+
+            with np.errstate(divide="ignore", invalid="ignore"):
+                g = counts.astype(FLOAT_DTYPE) / (norm * shell_vol)
+                g[~np.isfinite(g)] = 0.0
+
+            rdfs[(stra, strb)] = g
 
     return bins, rdfs

@@ -2,8 +2,10 @@ from __future__ import annotations
 from molecsim.data.data import StructureArray
 
 import typing
+
 if typing.TYPE_CHECKING:
     from molecsim.system.molecule import Molecule
+
 
 class SystemProperties:
     """Immutable wrapper for calculating and storing system properties.
@@ -14,18 +16,16 @@ class SystemProperties:
         T: Kelvin
     """
 
-    _k_b = 1  # by definition
+    # Boltzmann (kcal/mol/K)
+    _k_b = 0.0019872041
+
     # Coulomb coefficient:
-    # 1/(4*pi*epsilon_0) = 8.98e9 N*m²/C²
-    _coulomb_coeff = 1.671009e5  # K*A/e²
+    # 1/(4*pi*epsilon_0) =
+    _coulomb_coeff = 332.06371  # kcal*A/mol/e²
 
     # LJ parameters (TIP3P oxygen):
-    # epsilon = 0.1521 kcal/mol
-    # 0.1521*503.2 = 76.514 K
-    # sigma = 3.15 A
-    # A = 4*epsilon*sigma¹², B = 4*epsilon*sigma⁶
-    _LJ_A = 2.928737e8  # K*A¹²
-    _LJ_B = 2.994156e5  # K*A⁶
+    _LJ_A = 5.8200266e5  # kcal*A¹²/mol
+    _LJ_B = 5.9505497e2  # kcal*A⁶/mol
 
     def __init__(
         self,
