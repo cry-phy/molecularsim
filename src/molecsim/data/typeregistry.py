@@ -1,8 +1,21 @@
 from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
+from dataclasses import dataclass
 
-INT_DTYPE = np.int32
+from molecsim.data.data import INT_DTYPE
+
+
+@dataclass
+class Atom:
+    """Atom Dataclass for holding information for models."""
+
+    symbol: str
+    charge: float
+    mass: float
+
+    lj_eps: float
+    lj_sigma: float
 
 
 class TypeRegistry:

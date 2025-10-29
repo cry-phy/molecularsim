@@ -1,4 +1,5 @@
 from molecsim.data.data import INT_DTYPE, SystemData, FloatPrecision, FLOAT_DTYPE
+from molecsim.data.model import ModelConstants
 from molecsim.data.molecule import Molecule, StructureNode
 from typing import Protocol
 import numpy.typing as npt
@@ -8,13 +9,11 @@ import argparse
 import os
 import re
 
-from molecsim.data.properties import SystemProperties
-
 
 class Parser(Protocol):
     """Molecule Parser signature."""
 
-    def __call__(self, path: str, props: SystemProperties) -> Molecule:
+    def __call__(self, path: str, model: ModelConstants) -> Molecule:
         """Make Placeholder callable."""
         ...
 
@@ -22,7 +21,7 @@ class Parser(Protocol):
 _FLOAT_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 
 
-def parse_z_matrix(path: str, props: SystemProperties) -> Molecule:
+def parse_z_matrix(path: str, model: ModelConstants) -> Molecule:
     """Parse a Gaussian input file (Z-Matrix or Cartesian) into structure and Molecule objects."""
     if not os.path.exists(path):
         raise ValueError(f"Provided file ({path}) does not exist.")
@@ -34,7 +33,7 @@ def parse_z_matrix(path: str, props: SystemProperties) -> Molecule:
         supported = ", ".join(EXTENSION_MAPPING.keys())
         raise ValueError(f"Unsupported file extension '{ext}'. Supported: {supported}")
 
-    return parsing_function(path, props)
+    return parsing_function(path, model)
 
 
 def detect_geometry_type(line: str) -> str:
@@ -253,7 +252,7 @@ def _parse_zmatrix_block(
     return atoms, coords_arr, charges_arr, multiplicity_arr, fragment_arr, nodes
 
 
-def parse_com(path: str, props: SystemProperties) -> Molecule:
+def parse_com(path: str, model: ModelConstants) -> Molecule:
     """Parse Gaussian .com/.gjf and build a Molecule using registry/charges from props.
 
     - Uses props.registry for type indices.
@@ -303,10 +302,10 @@ def parse_com(path: str, props: SystemProperties) -> Molecule:
             "Unrecognized geometry format (neither Cartesian nor Z-matrix)."
         )
 
-    type_ids = np.asarray([props.type_index(a) for a in atoms], dtype=INT_DTYPE)
+    type_ids = np.asarray([model.type_index(a) for a in atoms], dtype=INT_DTYPE)
     pos = np.asarray(positions, dtype=FLOAT_DTYPE)
 
-    qs = np.asarray([props.charge_of(a) for a in atoms], dtype=FLOAT_DTYPE)
+    qs = np.asarray([model.charge_of(a) for a in atoms], dtype=FLOAT_DTYPE)
 
     data = SystemData.as_owner(types=type_ids, positions=pos, charges=qs)
     return Molecule(data, nodes)
@@ -370,6 +369,13 @@ def parse_args(argv=None) -> argparse.Namespace:
         type=Path,
         default=Path("out/state_final.pickle"),
         help="Output pickle path for final state (default: out/state_final.pickle)",
+    )
+    parser.add_argument(
+        "-p",
+        "--periodic",
+        type=bool,
+        default=True,
+        help="Toggles PBC.",
     )
 
     args = parser.parse_args(argv)

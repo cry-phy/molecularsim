@@ -124,7 +124,8 @@ def plot_system(sim: SimSystem) -> tuple[go.Figure, Callable[[SimSystem], go.Fig
 
     # build initial traces once
     sticks = lines_to_sticks(extract_bonds(sim.molecules, sim.properties.box))
-    atoms = positions_to_atoms(sim.data.positions, sim.data.atoms_as_str())
+    str_array = sim.model.registry.names(sim.data.atoms)
+    atoms = positions_to_atoms(sim.data.positions, str_array)
     box = make_box_trace_from_lengths(sim.properties.box)
 
     fig = FigureT(data=[sticks, atoms, box])

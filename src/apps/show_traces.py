@@ -10,9 +10,9 @@ python src/apps/debug_viewer.py \
 
 from __future__ import annotations
 
-from pathlib import Path
 import numpy as np
 
+from molecsim.utils.models import tip3p
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.data.rng import RNG
 from molecsim.utils.place import randomized_system
@@ -23,32 +23,26 @@ from molecsim.data.properties import SystemProperties
 def main() -> None:
     args = parse_args()
 
-    # Optional extras (robust even if not yet added to parse_args)
-    seed = getattr(args, "seed", 1)
-    add_traces = not getattr(args, "no_debug_traces", False)
+    model = tip3p()
 
-    # Build prototype -> count mapping from parsed args
     molecule_list = {
-        parse_com(path): n for path, n in zip(args.files, args.numbers, strict=True)
+        parse_com(path, model): n
+        for path, n in zip(args.files, args.numbers, strict=True)
     }
 
-    # Temporary charge hack to mirror earlier behavior (remove when charge IO is implemented)
-    first_proto = next(iter(molecule_list))
-    first_proto.data.charges = np.array([-2, 1, 1])
-
-    rng = RNG(seed)
+    rng = RNG(args.seed)
 
     props = SystemProperties(
         molecules=molecule_list,
         box=np.asarray(args.box, dtype=float),
         temperature=args.temperature,
+        periodic=args.periodic,
     )
 
-    sim = randomized_system(props, rng)
+    sim = randomized_system(props, model, rng)
 
-    fig, _update = plot_system(sim)
-    if add_traces:
-        fig = add_periodic_debug_traces(fig, sim)
+    fig, _ = plot_system(sim)
+    fig = add_periodic_debug_traces(fig, sim)
 
     fig.show()
 

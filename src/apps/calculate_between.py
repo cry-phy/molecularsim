@@ -18,6 +18,7 @@ from molecsim.data.properties import SystemProperties
 from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
 from molecsim.physics.potentials import coulomb, lennard_jones
 from molecsim.physics.mc import metropolis
+from molecsim.utils.models import tip3p
 from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.utils.plot import plot_system
@@ -28,23 +29,27 @@ import numpy as np
 
 if __name__ == "__main__":
     args = parse_args()
+    model = tip3p()
+
+    # Build prototype -> count mapping
     molecule_list = {
-        parse_com(path): n for path, n in zip(args.files, args.numbers, strict=True)
+        parse_com(path, model): n
+        for path, n in zip(args.files, args.numbers, strict=True)
     }
 
-    rng = RNG(10)  # Ensure RNG is seeded
-    box = np.asarray(args.box)
-    temp = args.temperature
+    rng = RNG(args.seed)
 
-    props = SystemProperties(molecule_list, box, temp)
-
-    sim = randomized_system(props, rng)  # Ensure deterministic placement
-
-    coulomb_cont = make_potcall(
-        coulomb,
-        props,
+    props = SystemProperties(
+        molecules=molecule_list,
+        box=np.asarray(args.box, dtype=float),
+        temperature=args.temperature,
+        periodic=args.periodic,
     )
-    lj_cont = make_potcall(lennard_jones, props)
+
+    sim = randomized_system(props, model, rng)
+
+    coulomb_cont = make_potcall(coulomb, props, model)
+    lj_cont = make_potcall(lennard_jones, props, model)
 
     forces = SystemPotentials([coulomb_cont, lj_cont])
 
@@ -90,7 +95,7 @@ if __name__ == "__main__":
         diff = new_contribution - old_contribution
 
         # accept/reject
-        decider = metropolis(sim.properties, diff, rng)
+        decider = metropolis(sim.properties, sim.model, diff, rng)
         recent_acceptance[index] += alpha * (decider - recent_acceptance[index])
 
         # apply & THEN update the plot

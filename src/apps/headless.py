@@ -24,6 +24,7 @@ import time
 import numpy as np
 
 from molecsim.physics.calculations import molecule_potential
+from molecsim.utils.models import tip3p
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.utils.place import randomized_system
 from molecsim.data.rng import RNG
@@ -37,15 +38,13 @@ from molecsim.physics.mc import metropolis
 def main() -> None:
     args = parse_args()
 
+    model = tip3p()
+
     # Build prototype -> count mapping
     molecule_list = {
-        parse_com(path): n for path, n in zip(args.files, args.numbers, strict=True)
+        parse_com(path, model): n
+        for path, n in zip(args.files, args.numbers, strict=True)
     }
-
-    # Temporary charge hack (kept from original; remove when proper charge IO exists)
-    # Apply to the first prototype to match the prior behavior (e.g., TIP3P-like H2O: [-2, 1, 1])
-    first_proto = next(iter(molecule_list))
-    first_proto.data.charges = np.array([-2, 1, 1])
 
     rng = RNG(args.seed)
 
@@ -53,15 +52,16 @@ def main() -> None:
         molecules=molecule_list,
         box=np.asarray(args.box, dtype=float),
         temperature=args.temperature,
+        periodic=args.periodic,
     )
 
-    sim = randomized_system(props, rng)
+    sim = randomized_system(props, model, rng)
 
     # Minimal force field: Coulomb + Lennard-Jones
     forces = SystemPotentials(
         [
-            make_potcall(coulomb, props),
-            make_potcall(lennard_jones, props),
+            make_potcall(coulomb, props, model),
+            make_potcall(lennard_jones, props, model),
         ]
     )
 
@@ -79,7 +79,7 @@ def main() -> None:
         new_e = molecule_potential(sim, new_molecule, forces)
         dE = new_e - old_e
 
-        if metropolis(sim.properties, dE, rng):
+        if metropolis(sim.properties, sim.model, dE, rng):
             old_molecule.copy_from(new_molecule)
 
     end = time.perf_counter_ns()

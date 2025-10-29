@@ -1,5 +1,6 @@
 from __future__ import annotations
 from molecsim.data.data import SystemData
+from molecsim.data.model import ModelConstants
 from molecsim.data.molecule import Molecule
 from molecsim.data.properties import SystemProperties
 from collections.abc import Sequence
@@ -13,6 +14,7 @@ class SimSystem:
         contigous_data: SystemData,
         molecules: Sequence[Molecule],
         properties: SystemProperties,
+        model: ModelConstants,
     ) -> None:
         """Initialize Simulation System."""
         self._contigous_data: SystemData = contigous_data
@@ -23,6 +25,7 @@ class SimSystem:
                 "Dimension of bounding box must match dimension of position."
             )
         self._properties = properties
+        self._model = model
 
     @property
     def molecules(self):
@@ -38,3 +41,8 @@ class SimSystem:
     def properties(self):
         """The properties property."""
         return self._properties
+
+    @property
+    def model(self):
+        """The model property."""
+        return self._model

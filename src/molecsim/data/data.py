@@ -66,6 +66,27 @@ class SystemData:
         cp._first_empty = self._first_empty
         return cp
 
+    def copy_from(self, src: SystemData) -> None:
+        """Copy atoms, positions, charges from src. Assumes same registry/IDs."""
+        if (
+            self._types.shape != src._types.shape
+            or self._positions.shape != src._positions.shape
+            or self._charges.shape != src._charges.shape
+        ):
+            raise ValueError("copy_from: shape mismatch between destination and source")
+
+        # Fast no-op if all arrays already share memory
+        if (
+            np.shares_memory(self._types, src._types)
+            and np.shares_memory(self._positions, src._positions)
+            and np.shares_memory(self._charges, src._charges)
+        ):
+            return
+
+        np.copyto(self._types, src._types, casting="no")
+        np.copyto(self._positions, src._positions, casting="no")
+        np.copyto(self._charges, src._charges, casting="no")
+
     def allocate_molecule(self, size: int) -> SystemData:
         """Allocate a contiguous view."""
         start = self._first_empty
@@ -79,7 +100,6 @@ class SystemData:
         self._first_empty = stop
         return view
 
-    # --- properties ---
     @property
     def positions(self) -> StructureArray:
         """The positions property."""
@@ -103,12 +123,12 @@ class SystemData:
         np.copyto(self._charges, value)
 
     @property
-    def types(self) -> npt.NDArray[INT_DTYPE]:
+    def atoms(self) -> npt.NDArray[INT_DTYPE]:
         """The types property."""
         return self._types
 
-    @types.setter
-    def types(self, value: npt.NDArray[INT_DTYPE]) -> None:
+    @atoms.setter
+    def atoms(self, value: npt.NDArray[INT_DTYPE]) -> None:
         if value.shape != self._types.shape:
             raise ValueError("types: shape mismatch")
         np.copyto(self._types, value)

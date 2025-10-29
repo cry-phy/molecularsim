@@ -4,11 +4,12 @@ from molecsim.data.data import StructureArray
 
 import numpy as np
 
-type MixingRule = Callable[[Iterable[float], Iterable[float]], StructureArray]
+type MixingRule = Callable[[StructureArray, StructureArray], StructureArray]
 
 
 def lbmixing(epsilons: StructureArray, sigmas: StructureArray) -> StructureArray:
-    """Lorentz–Berthelot mixing with shape (T, T, 2)."""
+    """L
+    orentz-Berthelot mixing with shape (T, T, 2)."""
     eps = np.asarray(epsilons, dtype=float)
     sig = np.asarray(sigmas, dtype=float)
 
@@ -33,7 +34,7 @@ class LJTable:
         registry,
         epsilons: dict[str, float],
         sigmas: dict[str, float],
-        mixing_rule,
+        mixing_rule: MixingRule = lbmixing,
     ) -> None:
         """Build table and check for inconsistencies."""
         key_set = set(registry.types)

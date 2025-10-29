@@ -24,15 +24,16 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # ---- Project imports ----
 from molecsim.data.contributors import make_potcall, SystemPotentials
+from molecsim.data.model import ModelConstants
 from molecsim.data.properties import SystemProperties
 from molecsim.physics.calculations import (
     all_rdfs,
-    calculate_potential,
     molecule_potential,
 )
 from molecsim.physics.mc import metropolis
 from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
 from molecsim.physics.potentials import coulomb, lennard_jones
+from molecsim.utils.models import tip3p
 from molecsim.utils.parsers import parse_com
 from molecsim.utils.place import randomized_system
 from molecsim.utils.plot import plot_system
@@ -56,22 +57,37 @@ def build_system(
     RNG,
     go.Figure,
     Callable[[Any], go.Figure | None],
-]:
+    ModelConstants,
+]:  # ← add model in return
     """Build a randomized simulation system and initial figure from inputs."""
-    molecule_list = {parse_com(path): n for path, n in zip(files, numbers, strict=True)}
+    # NEW: choose a model/constants (e.g., TIP3P)
+    model = tip3p()
+
+    # parse_com now needs the model (registry/charges)
+    molecule_list = {
+        parse_com(path, model): n for path, n in zip(files, numbers, strict=True)
+    }
+
     rng = RNG(int(seed))
     box_arr = np.asarray(box, dtype=float)
     temp = float(temperature)
 
+    # NEW: SystemProperties(box, T, periodic, constants=model)
     props = SystemProperties(molecule_list, box_arr, temp, periodic)
-    sim = randomized_system(props, rng)
 
-    coulomb_cont = make_potcall(coulomb, props)
-    lj_cont = make_potcall(lennard_jones, props)
-    forces = SystemPotentials([coulomb_cont, lj_cont])
+    # NEW: randomized_system(props, model, rng)
+    sim = randomized_system(props, model, rng)
+
+    # NEW: make_potcall(fn, props, model)
+    forces = SystemPotentials(
+        [
+            make_potcall(coulomb, props, model),
+            make_potcall(lennard_jones, props, model),
+        ]
+    )
 
     fig, update = plot_system(sim)
-    return sim, props, forces, rng, fig, update
+    return sim, props, forces, rng, fig, update, model
 
 
 def step_once(
@@ -93,7 +109,7 @@ def step_once(
     new_contrib = molecule_potential(sim, new_molecule, forces)
     diff = new_contrib - old_contrib
 
-    decider = metropolis(sim.properties, diff, rng)
+    decider = metropolis(sim.properties, sim.model, diff, rng)
 
     ema = ema_accept[index]
     ema = ema + alpha * (int(decider) - ema)
@@ -123,6 +139,7 @@ def ensure_state() -> None:
     st.session_state.initialized = False
     st.session_state.sim = None
     st.session_state.props = None
+    st.session_state.model = None
     st.session_state.forces = None
     st.session_state.rng = None
 
@@ -314,8 +331,8 @@ def rdf_record_single_snapshot(num_bins: int) -> None:
 
 
 def _bin_geometry(bins: np.ndarray, counts_len: int):
-    """
-    Return (edges, centers, dr, shell_vol) consistent with counts length.
+    """Return (edges, centers, dr, shell_vol) consistent with counts length.
+
     Detects if `bins` are centers (len == counts_len) or edges (len == counts_len+1).
     Assumes ~uniform spacing if centers are given.
     """
@@ -638,12 +655,13 @@ def sidebar_mutation_coefficients() -> None:
         st.success("Updated mutation coefficients.")
 
 
-def _assign_new_system(sim, props, forces, rng, fig, updater) -> None:
+def _assign_new_system(sim, props, forces, rng, fig, updater, model) -> None:
     """Attach new system/figure to session_state and reset counters."""
     st.session_state.sim = sim
     st.session_state.props = props
     st.session_state.forces = forces
     st.session_state.rng = rng
+    st.session_state.model = model
     st.session_state.fig = fig
     st.session_state.update_fig = updater
     st.session_state.initialized = True
@@ -686,10 +704,10 @@ def sidebar_initialize_or_load() -> None:
                 raise ValueError("box must have 3 values (Lx,Ly,Lz)")
 
             stop_worker()
-            sim, props, forces, rng, fig, updater = build_system(
+            sim, props, forces, rng, fig, updater, model = build_system(
                 files, numbers, box, temperature, seed, periodic
             )
-            _assign_new_system(sim, props, forces, rng, fig, updater)
+            _assign_new_system(sim, props, forces, rng, fig, updater, model)
         except Exception as e:
             st.error(f"Failed to build system: {e}")
 
@@ -705,6 +723,7 @@ def sidebar_initialize_or_load() -> None:
                 obj = pickle.load(up)
                 st.session_state.sim = obj
                 st.session_state.props = getattr(obj, "properties", None)
+                st.session_state.model = getattr(obj, "model", None)
                 fig, updater = plot_system(st.session_state.sim)
                 st.session_state.rng = RNG(seed)
                 coulomb_cont = make_potcall(coulomb, st.session_state.sim.properties)
@@ -717,6 +736,7 @@ def sidebar_initialize_or_load() -> None:
                     st.session_state.rng,
                     fig,
                     updater,
+                    st.session_state.model,
                 )
             except Exception as e:
                 st.error(f"Failed to load pickle: {e}")
@@ -733,6 +753,7 @@ def sidebar_initialize_or_load() -> None:
                     obj = pickle.load(f)  # ⚠ trusted pickles only
                 st.session_state.sim = obj
                 st.session_state.props = getattr(obj, "properties", None)
+                st.session_state.model = getattr(obj, "model", None)
                 fig, updater = plot_system(st.session_state.sim)
                 st.session_state.rng = RNG(seed)
                 coulomb_cont = make_potcall(coulomb, st.session_state.sim.properties)
@@ -745,6 +766,7 @@ def sidebar_initialize_or_load() -> None:
                     st.session_state.rng,
                     fig,
                     updater,
+                    st.session_state.model,
                 )
             except Exception as e:
                 st.error(f"Failed to load {pick_path}: {e}")
