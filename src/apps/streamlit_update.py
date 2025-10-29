@@ -299,33 +299,30 @@ def save_sim_to_path(path: str) -> None:
             pickle.dump(st.session_state.sim, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-import numpy as np
-import plotly.graph_objects as go
-import streamlit as st
-
-
 def rdf_record_single_snapshot(num_bins: int) -> None:
-    """Accumulate one RDF snapshot into session accumulators (raw counts)."""
-    bins, snap = all_rdfs(
-        st.session_state.sim, num_bins
-    )  # bins may be edges *or* centers
+    """Accumulate one RDF snapshot (already-normalized g_AB(r)) into session accumulators.
+
+    all_rdfs() returns g(r), not counts. We sum g(r) over snapshots and
+    divide by 'rdf_samples' at plotting/export time.
+    """
+    bins, snap = all_rdfs(st.session_state.sim, num_bins)  # bins are centers
 
     # (Re)initialize accumulators when binning changes
     if st.session_state.rdf_bins_edges is None or len(
         st.session_state.rdf_bins_edges
     ) != len(bins):
-        st.session_state.rdf_bins_edges = np.asarray(bins, dtype=float)
+        st.session_state.rdf_bins_edges = np.asarray(bins, dtype=float)  # centers
         st.session_state.rdf_accum = {}
         st.session_state.rdf_samples = 0
 
-    for key, h in snap.items():
-        h = np.asarray(h, dtype=float)
+    for key, g in snap.items():
+        g = np.asarray(g, dtype=float)
         if (
             key not in st.session_state.rdf_accum
-            or st.session_state.rdf_accum[key].shape != h.shape
+            or st.session_state.rdf_accum[key].shape != g.shape
         ):
-            st.session_state.rdf_accum[key] = np.zeros_like(h, dtype=float)
-        st.session_state.rdf_accum[key] += h
+            st.session_state.rdf_accum[key] = np.zeros_like(g, dtype=float)
+        st.session_state.rdf_accum[key] += g
 
     st.session_state.rdf_samples += 1
 
@@ -364,74 +361,45 @@ def _bin_geometry(bins: np.ndarray, counts_len: int):
 
 
 def rdf_plot() -> go.Figure | None:
-    """Return a Plotly figure of averaged, normalized RDF g_AB(r)."""
+    """Return a Plotly figure of averaged RDF g_AB(r) (no renormalization here)."""
     with st.session_state.worker_lock:
-        bins = st.session_state.rdf_bins_edges
+        bins = st.session_state.rdf_bins_edges  # centers
         samples = int(st.session_state.rdf_samples)
         accum = {k: v.copy() for k, v in st.session_state.rdf_accum.items()}
 
     if bins is None or samples == 0 or not accum:
         return None
 
-    # System numbers for normalization
-    sim = st.session_state.sim
-    V = float(np.prod(sim.properties.box))
-    atoms = sim.data.atoms
-
-    def normalize_counts(pair, counts, shell_vol):
-        a, b = pair
-        ida = sim.model.type_index(a)
-        idb = sim.model.type_index(b)
-        NA = int(np.count_nonzero(atoms == ida))
-        NB = int(np.count_nonzero(atoms == idb))
-        if NA == 0 or NB == 0:
-            return np.zeros_like(shell_vol)
-
-        if ida == idb:
-            rhoB = (NA - 1) / V
-            norm = NA * rhoB
-        else:
-            rhoB = NB / V
-            norm = NA * rhoB
-
-        mean_counts = counts / max(samples, 1)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            g = mean_counts / (norm * shell_vol)
-            g[~np.isfinite(g)] = 0.0
-        return g
-
     # Build curves and compute a robust y-cap
     curves = []
     all_vals = []
 
-    for (a, b), counts in sorted(accum.items()):
-        counts = np.asarray(counts, dtype=float)
-        _, centers, _, shell_vol = _bin_geometry(bins, counts_len=len(counts))
-        g = normalize_counts((a, b), counts, shell_vol)
-        curves.append((f"{a}-{b}", centers, g))
-        all_vals.append(g[np.isfinite(g)])
+    for (a, b), gsum in sorted(accum.items()):
+        gmean = np.asarray(gsum, dtype=float) / max(samples, 1)
+        curves.append((f"{a}-{b}", bins, gmean))
+        all_vals.append(gmean[np.isfinite(gmean)])
 
     if all_vals:
         all_vals = np.concatenate(all_vals)
-        y_cap = float(np.nanpercentile(all_vals, 95)) * 1.15
+        y_cap = float(np.nanpercentile(all_vals, 95)) * 3.5
         if not np.isfinite(y_cap) or y_cap <= 0:
             y_cap = 3.0
     else:
         y_cap = 3.0
 
     # x-range: PBC-safe bulk view
+    sim = st.session_state.sim
     r_max = 0.5 * float(np.min(sim.properties.box)) if sim.properties.periodic else None
 
     fig = go.Figure()
     for name, x, y in curves:
-        # if r_max set, mask to that range
         if r_max is not None:
             m = (x >= 0.0) & (x <= r_max)
             x, y = x[m], y[m]
         fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=name))
 
     layout = dict(
-        title=f"RDF (normalized g(r); bins={len(curves[0][1]) if curves else 0}, samples={samples})",
+        title=f"RDF g(r) (bins={len(curves[0][1]) if curves else 0}, samples={samples})",
         xaxis_title="r (Å)",
         yaxis_title="g(r)",
         margin=dict(l=0, r=0, t=40, b=0),
@@ -445,27 +413,27 @@ def rdf_plot() -> go.Figure | None:
 
 
 def rdf_csv_bytes() -> bytes:
-    """Export accumulated RDF counts as CSV bytes."""
+    """Export averaged RDF g_AB(r) as CSV bytes (one column per pair)."""
     with st.session_state.worker_lock:
-        bins = st.session_state.rdf_bins_edges
+        bins = st.session_state.rdf_bins_edges  # centers
         accum = st.session_state.rdf_accum
         samples = int(st.session_state.rdf_samples)
+
         if bins is None or not accum or samples == 0:
             raise ValueError("No RDF data to export yet.")
 
         pairs = sorted(accum.keys())
-        centers = 0.5 * (bins[:-1] + bins[1:])
+        centers = np.asarray(bins, dtype=float)
         nbins = len(centers)
 
         buf = io.StringIO()
         w = csv.writer(buf)
-        header = ["bin", "r_left", "r_right", "r_center"] + [
-            f"{a}-{b}" for (a, b) in pairs
-        ]
+        header = ["bin", "r_center"] + [f"g({a}-{b})" for (a, b) in pairs]
         w.writerow(header)
+
         for k in range(nbins):
-            row = [k, float(bins[k]), float(bins[k + 1]), float(centers[k])]
-            row.extend([int(accum[(a, b)][k]) for (a, b) in pairs])
+            row = [k, float(centers[k])]
+            row.extend([float(accum[(a, b)][k]) / samples for (a, b) in pairs])
             w.writerow(row)
 
     return buf.getvalue().encode("utf-8")
