@@ -693,8 +693,14 @@ def sidebar_initialize_or_load() -> None:
                 st.session_state.model = getattr(obj, "model", None)
                 fig, updater = plot_system(st.session_state.sim)
                 st.session_state.rng = RNG(seed)
-                coulomb_cont = make_potcall(coulomb, st.session_state.sim.properties)
-                lj_cont = make_potcall(lennard_jones, st.session_state.sim.properties)
+                coulomb_cont = make_potcall(
+                    coulomb, st.session_state.sim.properties, st.session_state.model
+                )
+                lj_cont = make_potcall(
+                    lennard_jones,
+                    st.session_state.sim.properties,
+                    st.session_state.model,
+                )
                 forces = SystemPotentials([coulomb_cont, lj_cont])
                 _assign_new_system(
                     obj,
@@ -723,8 +729,14 @@ def sidebar_initialize_or_load() -> None:
                 st.session_state.model = getattr(obj, "model", None)
                 fig, updater = plot_system(st.session_state.sim)
                 st.session_state.rng = RNG(seed)
-                coulomb_cont = make_potcall(coulomb, st.session_state.sim.properties)
-                lj_cont = make_potcall(lennard_jones, st.session_state.sim.properties)
+                coulomb_cont = make_potcall(
+                    coulomb, st.session_state.sim.properties, st.session_state.model
+                )
+                lj_cont = make_potcall(
+                    lennard_jones,
+                    st.session_state.sim.properties,
+                    st.session_state.model,
+                )
                 forces = SystemPotentials([coulomb_cont, lj_cont])
                 _assign_new_system(
                     obj,
