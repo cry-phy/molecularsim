@@ -8,8 +8,8 @@ version = "0.2.3"
 description = "Molecular Monte Carlo Simulation"
 authors = [
   { name = "Christof Stein", email = "christof.stein@student.uibk.ac.at" },
-  { name = "Dima" },
-  { name = "Niklas Peter" }
+  { name = "Dmytro Iazykov", email = "dmytro.iazykov@student.uibk.ac.at" },
+  { name = "Niklas Peter", email = "nikls.peter@student.uibk.ac.at" }
 ]
 readme = "README.md"
 requires-python = ">=3.12"
