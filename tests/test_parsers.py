@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from molecsim.utils.parsers import parse_z_matrix
+from tests.conftest import mock_model
 
 TEST_DIR = Path(__file__).parent
 DATA_DIR = TEST_DIR / "data"
@@ -75,29 +76,30 @@ def _angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
 
 
 @pytest.mark.parametrize("filename", ["water_cartesian.com", "water_zmatrix.com"])
-def test_parse_water_shapes_and_types(filename: str):
+def test_parse_water_shapes_and_types(filename: str, mock_model):
     """Test that parsing water files results in correct shapes and types."""
     path = DATA_DIR / filename
-    mol = parse_z_matrix(str(path))
+    mol = parse_z_matrix(str(path), mock_model)
 
     coords = _get_coords(mol)
     assert isinstance(coords, np.ndarray)
     assert coords.shape == (3, 3)
 
-    symbols = list(mol.data.atoms_as_str()) if hasattr(mol.data, "atoms_as_str") else _get_symbols(mol)
+    symbols = mock_model.names(mol.data.atoms).tolist()
+    print(symbols)
     assert len(symbols) == 3
     assert symbols.count("O") == 1
     assert symbols.count("H") == 2
 
 
 @pytest.mark.parametrize("filename", ["water_cartesian.com", "water_zmatrix.com"])
-def test_parse_water_geometry_is_correct(filename: str):
+def test_parse_water_geometry_is_correct(filename: str, mock_model):
     """Test that parsing water files results in correct geometry."""
     path = DATA_DIR / filename
-    mol = parse_z_matrix(str(path))
+    mol = parse_z_matrix(str(path), mock_model)
 
     coords = _get_coords(mol)
-    symbols = list(mol.data.atoms_as_str()) if hasattr(mol.data, "atoms_as_str") else _get_symbols(mol)
+    symbols = mock_model.names(mol.data.atoms).tolist()
     idx_O = symbols.index("O")
     idx_H = [i for i, s in enumerate(symbols) if s == "H"]
     assert len(idx_H) == 2
@@ -117,9 +119,9 @@ def test_parse_water_geometry_is_correct(filename: str):
     assert np.isclose(ang, 104.5, atol=0.5)
 
 
-def test_unsupported_extension_raises(tmp_path: Path):
+def test_unsupported_extension_raises(tmp_path: Path, mock_model):
     """Test that an unsupported file extension raises a ValueError."""
     bad = tmp_path / "foo.xyz"
     bad.write_text("not a gaussian file\n")
     with pytest.raises(ValueError):
-        _ = parse_z_matrix(str(bad))
+        _ = parse_z_matrix(str(bad), mock_model)

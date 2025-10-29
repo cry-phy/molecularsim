@@ -1,5 +1,6 @@
 from __future__ import annotations
 from molecsim.data.data import FLOAT_DTYPE, SystemData, StructureArray, INT_DTYPE
+from molecsim.data.model import ModelConstants
 from molecsim.data.molecule import Molecule
 from molecsim.data.properties import SystemProperties
 from molecsim.data.system import SimSystem
@@ -97,7 +98,7 @@ def all_rdfs(
 ) -> tuple[StructureArray, dict[tuple[str, str], StructureArray]]:
     """Generate all RDFs for a system."""
     return radial_distances(
-        sim.data, sim.data.symbols, sim.data.symbols, sim.properties, num_bins
+        sim.data, sim.model.types, sim.model.types, sim.properties, sim.model, num_bins
     )
 
 
@@ -106,6 +107,7 @@ def radial_distances(
     atoms_a: Iterable[str],
     atoms_b: Iterable[str],
     props: SystemProperties,
+    model: ModelConstants,
     num_bins: int,
 ) -> tuple[StructureArray, dict[tuple[str, str], StructureArray]]:
     """Calculate g_AB(r): histogram pairs in r^2, then normalize to RDF."""
@@ -119,8 +121,8 @@ def radial_distances(
     shell_vol = 4.0 * np.pi * bins**2 * dr
     squared_bins = edges**2
 
-    idas = data.atom_str_to_ids(atoms_a)
-    idbs = data.atom_str_to_ids(atoms_b)
+    idas = [model.type_index(a) for a in atoms_a]
+    idbs = [model.type_index(b) for b in atoms_b]
 
     r2 = distance_squares(data, data, props.box, props.periodic)
 

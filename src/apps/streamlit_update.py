@@ -377,19 +377,18 @@ def rdf_plot() -> go.Figure | None:
     sim = st.session_state.sim
     V = float(np.prod(sim.properties.box))
     atoms = sim.data.atoms
-    to_id = sim.data.atom_str_to_ids
 
     def normalize_counts(pair, counts, shell_vol):
         a, b = pair
-        ida = to_id([a])[0]
-        idb = to_id([b])[0]
+        ida = sim.model.type_index(a)
+        idb = sim.model.type_index(b)
         NA = int(np.count_nonzero(atoms == ida))
         NB = int(np.count_nonzero(atoms == idb))
         if NA == 0 or NB == 0:
             return np.zeros_like(shell_vol)
 
         if ida == idb:
-            rhoB = (NA - 1) / V  # exclude self for A==A
+            rhoB = (NA - 1) / V
             norm = NA * rhoB
         else:
             rhoB = NB / V

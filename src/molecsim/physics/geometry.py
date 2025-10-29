@@ -211,6 +211,7 @@ def dmat_min_image(
     diff -= box * np.round(diff / box)
     return np.linalg.norm(diff, axis=-1)
 
+
 def extra_interaction_mask(
     large_data: SystemData,
     small_data: SystemData,

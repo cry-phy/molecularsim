@@ -6,27 +6,33 @@ from molecsim.data.properties import SystemProperties
 from molecsim.physics.potentials import coulomb, lennard_jones
 
 
-def test_coulomb_single_molecule(mock_props):
+def test_coulomb_single_molecule(mock_props, mock_model):
     """Test Coulomb potential for a single molecule."""
     # Define a simple molecule with two atoms
     positions = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
     charges = np.array([1.0, -1.0], dtype=np.float64)
-    data = SystemData.as_owner(atoms=["A", "B"], positions=positions, charges=charges)
 
+    data = SystemData.as_owner(
+        np.array([mock_model.registry.index_of(a) for a in ["A", "B"]]),
+        positions=positions,
+        charges=charges,
+    )
     # Calculate Coulomb potential
-    potential = coulomb(data, data, mock_props)
+    potential = coulomb(data, data, mock_props, mock_model)
     # Expected potential: k * q1 * q2 / r, where k=1, q1=1, q2=-1, r=1
     expected_potential = -1.0
     assert np.isclose(potential, expected_potential)
 
 
-def test_coulomb_two_molecules(mock_props):
+def test_coulomb_two_molecules(mock_props, mock_model):
     """Test Coulomb potential for two interacting molecules."""
     # Define two molecules
     positions1 = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
     charges1 = np.array([1.0, -1.0], dtype=np.float64)
     data1 = SystemData.as_owner(
-        atoms=["A", "B"], positions=positions1, charges=charges1
+        np.array([mock_model.registry.index_of(a) for a in ["A", "B"]]),
+        positions=positions1,
+        charges=charges1,
     )
 
     positions2 = np.array([[3.0, 0.0, 0.0], [4.0, 0.0, 0.0]], dtype=np.float64)
@@ -37,11 +43,13 @@ def test_coulomb_two_molecules(mock_props):
     combined_charges = np.concatenate([charges1, charges2], axis=0)
     combined_atoms = ["A", "B", "C", "D"]
     combined_data = SystemData.as_owner(
-        atoms=combined_atoms, positions=combined_positions, charges=combined_charges
+        np.array([mock_model.registry.index_of(a) for a in combined_atoms]),
+        positions=combined_positions,
+        charges=combined_charges,
     )
 
     # Calculate Coulomb potential between the two molecules
-    potential = coulomb(combined_data, data1, mock_props)
+    potential = coulomb(combined_data, data1, mock_props, mock_model)
 
     # Calculate expected potential
     # Distances:
@@ -70,50 +78,58 @@ def test_coulomb_two_molecules(mock_props):
     assert np.isclose(potential, expected_potential)
 
 
-def test_lennard_jones_single_molecule(mock_props: SystemProperties):
+def test_lennard_jones_single_molecule(mock_props: SystemProperties, mock_model):
     """Test Lennard-Jones potential for a single molecule."""
     # Define a simple molecule with two atoms
     positions = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
     data = SystemData.as_owner(
-        atoms=["A", "B"], positions=positions, charges=np.zeros(2)
+        np.array([mock_model.registry.index_of(a) for a in ["A", "B"]]),
+        positions=positions,
+        charges=np.zeros(2),
     )
 
     # Set Lennard-Jones parameters
     A, B = mock_props.lj_params
 
     # Calculate Lennard-Jones potential
-    potential = lennard_jones(data, data, mock_props)
+    potential = lennard_jones(data, data, mock_props, mock_model)
 
     # Expected potential: A/r^12 - B/r^6, where r = 1
     expected_potential = 0.0
     assert np.isclose(potential, expected_potential)
 
 
-def test_lennard_jones_two_molecules(mock_props):
+def test_lennard_jones_two_molecules(mock_props, mock_model):
     """Test Lennard-Jones potential for two interacting molecules."""
     # Define two molecules
     positions1 = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
     data1 = SystemData.as_owner(
-        atoms=["A", "B"], positions=positions1, charges=np.zeros(2)
+        np.array([mock_model.registry.index_of(a) for a in ["A", "B"]]),
+        positions=positions1,
+        charges=np.zeros(2),
     )
 
     positions2 = np.array([[3.0, 0.0, 0.0], [4.0, 0.0, 0.0]], dtype=np.float64)
     data2 = SystemData.as_owner(
-        atoms=["C", "D"], positions=positions2, charges=np.zeros(2)
+        np.array([mock_model.registry.index_of(a) for a in ["C", "D"]]),
+        positions=positions2,
+        charges=np.zeros(2),
     )
 
     # Combine positions into a single SystemData
     combined_positions = np.concatenate([positions1, positions2], axis=0)
     combined_atoms = ["A", "B", "C", "D"]
     combined_data = SystemData.as_owner(
-        atoms=combined_atoms, positions=combined_positions, charges=np.zeros(4)
+        np.array([mock_model.registry.index_of(a) for a in combined_atoms]),
+        positions=combined_positions,
+        charges=np.zeros(4),
     )
 
     # Set Lennard-Jones parameters
     A, B = mock_props.lj_params
 
     # Calculate Lennard-Jones potential between the two molecules
-    potential = lennard_jones(combined_data, data1, mock_props)
+    potential = lennard_jones(combined_data, data1, mock_props, mock_model)
 
     # Calculate expected potential
     # Distances: A-B=1, A-C=3, A-D=4, B-C=2, B-D=3
