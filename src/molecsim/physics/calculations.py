@@ -124,7 +124,7 @@ def radial_distances(
     idas = [model.type_index(a) for a in atoms_a]
     idbs = [model.type_index(b) for b in atoms_b]
 
-    r2 = distance_squares(data, data, props.box, props.periodic)
+    r2 = distance_squares(data, data, props.box, True)
 
     volume = float(np.prod(props.box))
     rdfs: dict[tuple[str, str], StructureArray] = {}
