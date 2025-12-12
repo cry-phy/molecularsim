@@ -1,9 +1,11 @@
 from __future__ import annotations
+import math
 from molecsim.data.data import FloatPrecision, SystemData, StructureArray, FLOAT_DTYPE
 from molecsim.data.properties import SystemProperties
 import numpy.typing as npt
 import numpy as np
 import typing
+from numba import njit, float64
 
 if typing.TYPE_CHECKING:
     from molecsim.data.rng import RNG
@@ -31,51 +33,75 @@ def rot_matrix(bend_angle: float, dihedral_angle: float) -> npt.NDArray[FloatPre
     )
 
 
+@njit(float64[:, :](float64, float64, float64, float64), fastmath=True)
 def rot_matrix_uniform(
-    u1: float, u2: float, u3: float, theta_max: float
+    u1: float,
+    u2: float,
+    u3: float,
+    theta_max: float,
 ) -> npt.NDArray[FloatPrecision]:
     """Generate rotation matrix uniform up to angle.
 
     Truly black magic but somehow works!!.
     """
-    phi = 2 * np.pi * u1
-    z = 2 * u2 - 1
-    r = np.sqrt(1 - z**2)
-    kx = r * np.cos(phi)
-    ky = r * np.sin(phi)
+    # scalar-safe clip
+    if theta_max < 0.0:
+        theta_max = 0.0
+    elif theta_max > math.pi:
+        theta_max = math.pi
+
+    phi = 2.0 * math.pi * u1
+    z = 2.0 * u2 - 1.0
+    r = math.sqrt(max(0.0, 1.0 - z * z))
+    kx = r * math.cos(phi)
+    ky = r * math.sin(phi)
     kz = z
 
-    theta_max = float(np.clip(theta_max, 0.0, np.pi))
     if theta_max == 0.0:
-        return np.eye(3, dtype=FLOAT_DTYPE)
+        matrix = np.zeros((3, 3), dtype=np.float64)
+        matrix[0, 0] = 1.0
+        matrix[1, 1] = 1.0
+        matrix[2, 2] = 1.0
+        return matrix
 
-    c1 = theta_max - np.sin(theta_max)
-    u = np.clip(u3, 0.0, 1.0)
+    c1 = theta_max - math.sin(theta_max)
+    u = u3
+    if u < 0.0:
+        u = 0.0
+    elif u > 1.0:
+        u = 1.0
 
     c = ((6.0 * c1) ** (1.0 / 3.0)) / theta_max - 1.0
     theta = ((6.0 * c1 * u) ** (1.0 / 3.0)) / (1.0 + c * (u ** (2.0 / 3.0)))
 
     c2 = u * c1
     for _ in range(2):
-        denom = 1.0 - np.cos(theta)
+        denom = 1.0 - math.cos(theta)
         if denom < 1e-12:
             theta += 1e-6
-            denom = 1.0 - np.cos(theta)
-        theta -= (theta - np.sin(theta) - c2) / denom
-    theta = float(np.clip(theta, 0.0, theta_max))
+            denom = 1.0 - math.cos(theta)
+        theta -= (theta - math.sin(theta) - c2) / denom
 
-    cth = np.cos(theta)
-    sth = np.sin(theta)
+    if theta < 0.0:
+        theta = 0.0
+    elif theta > theta_max:
+        theta = theta_max
+
+    cth = math.cos(theta)
+    sth = math.sin(theta)
     t = 1.0 - cth
 
-    return np.array(
-        [
-            [cth + kx * kx * t, kx * ky * t - kz * sth, kx * kz * t + ky * sth],
-            [ky * kx * t + kz * sth, cth + ky * ky * t, ky * kz * t - kx * sth],
-            [kz * kx * t - ky * sth, kz * ky * t + kx * sth, cth + kz * kz * t],
-        ],
-        dtype=FLOAT_DTYPE,
-    )
+    matrix = np.empty((3, 3), dtype=np.float64)
+    matrix[0, 0] = cth + kx * kx * t
+    matrix[0, 1] = kx * ky * t - kz * sth
+    matrix[0, 2] = kx * kz * t + ky * sth
+    matrix[1, 0] = ky * kx * t + kz * sth
+    matrix[1, 1] = cth + ky * ky * t
+    matrix[1, 2] = ky * kz * t - kx * sth
+    matrix[2, 0] = kz * kx * t - ky * sth
+    matrix[2, 1] = kz * ky * t + kx * sth
+    matrix[2, 2] = cth + kz * kz * t
+    return matrix
 
 
 def rot_matrix_quaternions(
@@ -174,29 +200,29 @@ def fuzzyfy(
     return wrap_periodic(proposal, 0, box)
 
 
+@njit
 def unwrap_to_reference(
     pos: npt.NDArray[np.floating], box: npt.NDArray[np.floating], iref: int = 0
 ) -> npt.NDArray[np.floating]:
     """Place all atoms in the nearest image relative to atom iref."""
-    pos = np.asarray(pos, float)
-    box = np.asarray(box, float)
     ref = pos[iref]
     diff = pos - ref  # pairwise to reference
     diff -= box * np.round(diff / box)  # minimum-image to reference
     return ref + diff
 
 
+@njit
 def rotate_rigid_pbc(
     pos: npt.NDArray[np.floating],
     box: npt.NDArray[np.floating],
-    R: npt.NDArray[np.floating],
+    r_matrix: npt.NDArray[np.floating],
     iref: int = 0,
 ) -> npt.NDArray[np.floating]:
     """Rigidly rotate a molecule across PBC and rewrap with a single lattice shift."""
-    u = unwrap_to_reference(pos, box, iref=iref)
+    unwrapped = unwrap_to_reference(pos, box, iref=iref)
 
-    c = u.mean(axis=0)
-    ru = (u - c) @ R.T + c
+    center = np.sum(unwrapped, axis=0) / unwrapped.shape[0]
+    ru = (unwrapped - center) @ r_matrix.T + center
 
     shift = -box * np.floor(ru[iref] / box)
     rw = ru + shift

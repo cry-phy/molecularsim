@@ -21,7 +21,7 @@ from molecsim.physics.mc import metropolis
 from molecsim.utils.models import tip3p
 from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_args, parse_com
-from molecsim.utils.plot import plot_system
+from molecsim_tools.plot import plot_system
 from molecsim.data.rng import RNG
 import pickle
 
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     args = parse_args()
     model = tip3p()
 
-    # Build prototype -> count mapping
+    # Build prototype -> count mappincalcg
     molecule_list = {
         parse_com(path, model): n
         for path, n in zip(args.files, args.numbers, strict=True)

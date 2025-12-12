@@ -1,5 +1,5 @@
 from __future__ import annotations
-from molecsim.data.data import FLOAT_DTYPE, SystemData, StructureArray, INT_DTYPE
+from molecsim.data.data import FLOAT_DTYPE, SystemData, StructureArray
 from molecsim.data.model import ModelConstants
 from molecsim.data.molecule import Molecule
 from molecsim.data.properties import SystemProperties

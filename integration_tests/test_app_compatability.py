@@ -3,8 +3,8 @@ import sys
 import subprocess
 from pathlib import Path
 
-DATA = Path(__file__).parent / "data"
-APP_DIR = Path(__file__).parents[1] / "src" / "apps"
+DATA = Path(__file__).parents[1] / "molecsim" / "tests" / "data"
+APP_DIR = Path(__file__).parents[1] / "apps"
 
 
 def run_cli(

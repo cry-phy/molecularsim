@@ -1,11 +1,12 @@
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "molecsim"
+name = "molecsim-tools"
 version = "0.2.3"
-description = "Molecular Monte Carlo Simulation"
+description = "Dev/analysis tools for molecsim (Streamlit UI etc.)"
 authors = [
   { name = "Christof Stein", email = "christof.stein@student.uibk.ac.at" },
   { name = "Dmytro Iazykov", email = "dmytro.iazykov@student.uibk.ac.at" },
@@ -14,24 +15,27 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "numpy>=1.26",
+  "molecsim",
   "matplotlib>=3.9",
   "plotly>=6.3",
+  "tqdm>=4.66",
   "anywidget>=0.9",
-  "numba>=0.60",
-  "tqdm>=4.66"
+  "streamlit",
+  "streamlit-autorefresh",
+  "kaleido",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "black>=24.0", "mypy>=1.10", "pytest-cov"]
-apps = ["streamlit", "streamlit-autorefresh", "kaleido"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["src/apps"]
 
 [tool.pyright]
 extraPaths = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[project.scripts]
+molecsim-streamlit = "molecsim_tools.streamlit_mc:main"
