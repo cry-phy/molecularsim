@@ -31,7 +31,7 @@ if __name__ == "__main__":
     args = parse_args()
     model = tip3p()
 
-    # Build prototype -> count mapping
+    # Build prototype -> count mappincalcg
     molecule_list = {
         parse_com(path, model): n
         for path, n in zip(args.files, args.numbers, strict=True)

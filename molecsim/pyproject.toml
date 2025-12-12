@@ -19,7 +19,8 @@ dependencies = [
   "plotly>=6.3",
   "anywidget>=0.9",
   "numba>=0.60",
-  "tqdm>=4.66"
+  "tqdm>=4.66",
+  "scipy>=0.16",
 ]
 
 [project.optional-dependencies]
@@ -28,7 +29,6 @@ apps = ["streamlit", "streamlit-autorefresh", "kaleido"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["src/apps"]
 
 [tool.pyright]
 extraPaths = ["src"]

@@ -21,6 +21,7 @@ class SystemData:
     def __init__(self, n: int) -> None:
         """Generate empty Data arrays."""
         self._positions: StructureArray = np.zeros((n, 3), dtype=FLOAT_DTYPE)
+        self._velocities: StructureArray = np.zeros((n, 3), dtype=FLOAT_DTYPE)
         self._charges: npt.NDArray[FloatPrecision] = np.zeros(n, dtype=FLOAT_DTYPE)
         self._types: npt.NDArray[INT_DTYPE] = np.zeros(n, dtype=INT_DTYPE)
 
@@ -71,6 +72,7 @@ class SystemData:
         if (
             self._types.shape != src._types.shape
             or self._positions.shape != src._positions.shape
+            or self._velocities.shape != src._velocities.shape
             or self._charges.shape != src._charges.shape
         ):
             raise ValueError("copy_from: shape mismatch between destination and source")
@@ -79,12 +81,14 @@ class SystemData:
         if (
             np.shares_memory(self._types, src._types)
             and np.shares_memory(self._positions, src._positions)
+            and np.shares_memory(self._velocities, src._velocities)
             and np.shares_memory(self._charges, src._charges)
         ):
             return
 
         np.copyto(self._types, src._types, casting="no")
         np.copyto(self._positions, src._positions, casting="no")
+        np.copyto(self._velocities, src._velocities, casting="no")
         np.copyto(self._charges, src._charges, casting="no")
 
     def allocate_molecule(self, size: int) -> SystemData:
@@ -110,6 +114,17 @@ class SystemData:
         if positions.shape != self._positions.shape:
             raise ValueError("positions: shape mismatch")
         np.copyto(self._positions, positions)
+
+    @property
+    def velocities(self) -> StructureArray:
+        """The positions property."""
+        return self._velocities
+
+    @velocities.setter
+    def velocities(self, velocities: StructureArray) -> None:
+        if velocities.shape != self._velocities.shape:
+            raise ValueError("positions: shape mismatch")
+        np.copyto(self._velocities, velocities)
 
     @property
     def charges(self) -> StructureArray:

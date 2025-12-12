@@ -1,10 +1,10 @@
 """Streamlit app for live tracking a molecular MC system.
 
-Install (inside your project):
+Install:
     pip install .[apps]
 
 Run:
-    streamlit run src/apps/streamlit_update.py
+    streamlit run src/apps/streamlit_mc.py
 """
 
 from __future__ import annotations
