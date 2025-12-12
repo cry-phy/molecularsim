@@ -1,0 +1,37 @@
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "molecsim-tools"
+version = "0.2.3"
+description = "Dev/analysis tools for molecsim (Streamlit UI etc.)"
+authors = [
+  { name = "Christof Stein", email = "christof.stein@student.uibk.ac.at" },
+  { name = "Dmytro Iazykov", email = "dmytro.iazykov@student.uibk.ac.at" },
+  { name = "Niklas Peter", email = "niklas.peter@student.uibk.ac.at" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "molecsim>=0.2.3",
+  "streamlit",
+  "streamlit-autorefresh",
+  "kaleido",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "black>=24.0", "mypy>=1.10", "pytest-cov"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pyright]
+extraPaths = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.scripts]
+molecsim-streamlit = "molecsim_tools.streamlit_mc:main"
