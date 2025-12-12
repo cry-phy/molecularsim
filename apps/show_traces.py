@@ -16,7 +16,7 @@ from molecsim.utils.models import tip3p
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.data.rng import RNG
 from molecsim.utils.place import randomized_system
-from molecsim.utils.plot import add_periodic_debug_traces, plot_system
+from molecsim_tools.plot import add_periodic_debug_traces, plot_system
 from molecsim.data.properties import SystemProperties
 
 

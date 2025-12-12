@@ -36,7 +36,7 @@ from molecsim.physics.potentials import coulomb, lennard_jones
 from molecsim.utils.models import tip3p
 from molecsim.utils.parsers import parse_com
 from molecsim.utils.place import randomized_system
-from molecsim.utils.plot import plot_system
+from molecsim_tools.plot import plot_system
 from molecsim.data.rng import RNG
 
 

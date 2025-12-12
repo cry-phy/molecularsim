@@ -15,7 +15,11 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "molecsim>=0.2.3",
+  "molecsim",
+  "matplotlib>=3.9",
+  "plotly>=6.3",
+  "tqdm>=4.66",
+  "anywidget>=0.9",
   "streamlit",
   "streamlit-autorefresh",
   "kaleido",

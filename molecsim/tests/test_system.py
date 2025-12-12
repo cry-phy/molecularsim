@@ -8,7 +8,6 @@ from molecsim.data.molecule import Molecule
 from molecsim.data.system import SimSystem
 from molecsim.physics.geometry import BOUND_EPS
 from molecsim.utils.place import randomized_system
-from molecsim.utils.plot import plot_system
 from molecsim.data.rng import RNG
 from tests.conftest import mock_model
 
@@ -80,8 +79,6 @@ def test_nonperiodic_is_rigidly_clamped_inside_box(mock_model):
     )
     rng = RNG(123)
     sys = randomized_system(props, mock_model, rng)
-    fig, _ = plot_system(sys)
-    fig.show()
     pos = sys.data.positions.copy()
     assert np.all(pos >= -BOUND_EPS)
     assert np.all(pos <= box + BOUND_EPS)
