@@ -2,6 +2,11 @@
 
 This repository contains the software and resources for *Laboratory Course Computational Physics, WS 24/25*.
 
+The project is structured as two different installable python packages:
+
+- [**`molecsim`** ](molecsim/) as the core simulation packages.
+- [**`molecsim-tools`**](molecsim_tools/) for visualization and development tools.
+
 ## Resources
 
 Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](resources/Essentials_Comp_Chem_Cramer.pdf) can be found in the [resources](resources) directory.
@@ -14,41 +19,64 @@ Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](re
 
 [Christof Stein](mailto:christof.stein@student.uibk.ac.at).
 
-## Development
+## Development setup
 
-For development the project is installable in editable mode via pip using additional tools from [dev] dependencies, which already install all needed requirements:
+The repository contains two installable subprojects.
+
+### Install core library (simulation engine)
+
 ```bash
-pip install -e .[dev]
+pip install -e molecsim
+```
+
+For development and testing:
+
+```bash
+pip install -e molecsim[dev]
+```
+
+This installs the simulation engine without any UI or Streamlit dependencies.
+
+### Install tools and apps (optional)
+
+The tools package provides Streamlit and other analysis utilities and depends on `molecsim`:
+
+```bash
+pip install -e molecsim-tools
 ```
 
 ## Running calculations
 
-Calculations will be run using apps stored in the [src/apps](src/apps) directory. 
+Apps are intentionally not part of the core library. They live in the `molecsim-tools` package and are optionally exposed via small launcher scripts under `apps/`.
 
-The following apps are implemented:
+## Streamlit Web App
 
-### Streamlit Webapp
+The main interactive interface is a Streamlit web application.
 
-Main interaction is done via [streamlit webapp](src/apps/streamlit_update.py) bunling the interactions into a nice interface.
+After installing `molecsim-tools`, you can either:
 
-This requires installing the app dependencies:
+### Run via installed command (recommended)
 
 ```bash
-pip install .[apps]
+molecsim-streamlit
 ```
 
-but provides UI in browser via:
+### Or run the thin launcher script
 
 ```bash
-streamlit run src/apps/streamlit_update.py
+python apps/streamlit_mc.py
 ```
 
-### Headless mode
+This launches the UI in your browser and provides live interaction with the Monte-Carlo simulation.
 
-[Headless Execution](src/apps/headless.py) is used to presimulate specific data for further study. In essence it is used to prepare systems into equilibrium states for macroscopic parameter extraction.
+## Headless mode
+
+Headless execution is used to pre-equilibrate systems or generate data for further analysis.
+
+Example:
 
 ```bash
-python src/apps/run_headless.py \
+python apps/headless.py \
     -f tests/data/water_zmatrix.com \
     -n 2 \
     -t 10 \
@@ -58,21 +86,33 @@ python src/apps/run_headless.py \
     --seed 10
 ```
 
-### Debug view
+This runs a Monte-Carlo simulation without UI and writes the final system state to disk.
 
-Distance calculations using minimum image convention can be inspected in [debug app](src/apps/headless.py):
+## Debug / inspection tools
 
-
-### Showcase App
-
-Currently a small [showcase applet](src/apps/calculate_between.py) exists to show how interaction with the module might work. It can be called:
+Distance calculations and minimum-image conventions can be inspected using the debug utilities:
 
 ```bash
-python src/apps/debug_viewer.py \
-  -f tests/data/water_zmatrix.com \
-  -n 5 \
-  -t 10 \
-  -b 10,10,10 \
-  --seed 1
+python apps/show_traces.py
 ```
 
+These tools are intended for development and validation, not for production runs.
+
+## Showcase app
+
+A small showcase app demonstrates how to interact with the simulation engine programmatically:
+
+```bash
+python apps/calculate_between.py \
+    -f tests/data/water_zmatrix.com \
+    -n 5 \
+    -t 10 \
+    -b 10,10,10 \
+    --seed 1
+```
+
+## Notes
+
+- `molecsim` never depends on Streamlit or UI code.
+- `molecsim-tools` may change rapidly and is intended for development, analysis, and visualization.
+- The `apps/` directory only contains thin entry scripts and is not packaged.
