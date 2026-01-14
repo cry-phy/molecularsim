@@ -1,11 +1,13 @@
 from __future__ import annotations
 import math
+
+from numba.core.types import Any
 from molecsim.data.data import FloatPrecision, SystemData, StructureArray, FLOAT_DTYPE
 from molecsim.data.properties import SystemProperties
 import numpy.typing as npt
 import numpy as np
 import typing
-from numba import njit, float64
+from numba import njit, float64, vectorize
 
 if typing.TYPE_CHECKING:
     from molecsim.data.rng import RNG
@@ -68,7 +70,7 @@ def rot_matrix_uniform(
     u = u3
     if u < 0.0:
         u = 0.0
-    elif u > 1.0:
+    elif u > 1.0:Your dispatcher gathers tokens per potcall, then on accept runs commits. This avoids dict keys and keeps everything typed.
         u = 1.0
 
     c = ((6.0 * c1) ** (1.0 / 3.0)) / theta_max - 1.0
@@ -271,3 +273,23 @@ def distance_squares(
     if periodic:  # needs MIC
         dist_vecs -= box * np.round(dist_vecs / box)
     return np.einsum("mni->mn", dist_vecs**2)
+
+
+@vectorize(['float64(float64)', 'float32(float32)'], fastmath=True)
+def erfc(x: npt.NDArray[FloatPrecision]) -> npt.NDArray[FloatPrecision]:
+    """Compute approximate error function using Abramowitz & Stegun"""
+    p1 = 0.406742016006509
+    p2 = 0.0072279182302319
+    a1 = 0.316879890481381
+    a2 = -0.138329314150635
+    a3 = 1.08680830347054
+    a4 = -1.11694155120396
+    a5 = 1.20644903073232
+    a6 = -0.393127715207728
+    a7 = 0.0382613542530727
+    x = x.astype(FLOAT_DTYPE)
+    t = 1 / (1 + p1 * x + p2 * x)
+    result = 1 - (a1 * t + a2 * t + a3 * t + a4 * t + a5 * t + a6 * t + a7 * t)
+    return result
+    
+    

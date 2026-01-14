@@ -50,6 +50,7 @@ class MockModel:
         self._qtable = _MockQTable()
         self._k_b = 0.0019872041  # kcal/mol/K (not used here)
         self._coulomb = 1.0  # unitless in your tests
+        self._cutoff = np.inf
 
     @property
     def registry(self):
@@ -66,6 +67,10 @@ class MockModel:
     @property
     def coulomb_coeff(self) -> float:
         return self._coulomb
+
+    @property
+    def cutoff(self) -> float:
+        return self._cutoff
 
     def lj_for(self, ti: int, tj: int) -> tuple[float, float]:
         # A_ij, B_ij
