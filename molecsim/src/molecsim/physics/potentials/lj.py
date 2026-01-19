@@ -5,7 +5,6 @@ from molecsim.data.model import ModelConstants
 from molecsim.data.properties import SystemProperties
 from molecsim.physics.geometry import (
     distance_squares,
-    erfc,
     extra_interaction_mask,
     intra_interaction_mask,
 )
@@ -17,17 +16,15 @@ def _sum_lj_block(
     mask_block: np.ndarray,
     A: float,
     B: float,
-    cut: float,
 ) -> float:
     """Sum LJ energy on a masked distance^2 block for fixed (A,B)."""
     if A == 0.0 and B == 0.0:
         return 0.0
     r2 = r2_block.copy()
     r2[~mask_block] = np.inf
-    dists = np.sqrt(r2)
     r6 = r2 * r2 * r2
     r12 = r6 * r6
-    block = (A / r12) - (B / r6) * erfc(dists - cut)
+    block = (A / r12) - (B / r6)
     return float(np.sum(block, dtype=FLOAT_DTYPE))
 
 
@@ -64,7 +61,7 @@ def lennard_jones(
 
             sub_r2 = r2[np.ix_(Ii, Jj)]
             sub_mask = mask[np.ix_(Ii, Jj)]
-            extra_sum += _sum_lj_block(sub_r2, sub_mask, Aij, Bij, cut=model.cutoff)
+            extra_sum += _sum_lj_block(sub_r2, sub_mask, Aij, Bij)
 
     intra_r2 = distance_squares(
         molecule_data, molecule_data, props.box, periodic=props.periodic
@@ -83,6 +80,6 @@ def lennard_jones(
 
             sub_r2 = intra_r2[np.ix_(Ii, Jj)]
             sub_mask = intra_mask[np.ix_(Ii, Jj)]
-            intra_sum += _sum_lj_block(sub_r2, sub_mask, Aij, Bij, cut=model.cutoff)
+            intra_sum += _sum_lj_block(sub_r2, sub_mask, Aij, Bij)
 
     return extra_sum + intra_sum

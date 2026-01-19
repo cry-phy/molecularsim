@@ -108,7 +108,7 @@ class MockModel:
         self._qtable = _MockQTable()
         self._k_b = 0.0019872041
         self._coulomb = 1.0
-        self._cutoff = np.inf
+        self._cutoff = 1e12
 
     @property
     def registry(self):

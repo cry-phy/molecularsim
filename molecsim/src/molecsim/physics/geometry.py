@@ -276,10 +276,11 @@ def distance_squares(
 
 
 @vectorize(["float64(float64)", "float32(float32)"], fastmath=True)
-def erfc(x: npt.NDArray[FloatPrecision]) -> npt.NDArray[FloatPrecision]:
-    """Compute approximate error function using Abramowitz & Stegun."""
+def erf_as(x):
+    # Coefficients (Wikipedia / extended A&S)
     p1 = 0.406742016006509
     p2 = 0.0072279182302319
+
     a1 = 0.316879890481381
     a2 = -0.138329314150635
     a3 = 1.08680830347054
@@ -287,6 +288,17 @@ def erfc(x: npt.NDArray[FloatPrecision]) -> npt.NDArray[FloatPrecision]:
     a5 = 1.20644903073232
     a6 = -0.393127715207728
     a7 = 0.0382613542530727
-    t = 1 / (1 + p1 * x + p2 * x)
-    result = 1 - (a1 * t + a2 * t + a3 * t + a4 * t + a5 * t + a6 * t + a7 * t)
-    return result
+
+    ax = abs(x)
+    t = 1.0 / (1.0 + p1 * ax + p2 * ax * ax)
+
+    # Horner form for polynomial in t
+    poly = t * (a1 + t * (a2 + t * (a3 + t * (a4 + t * (a5 + t * (a6 + t * a7))))))
+
+    y = 1.0 - poly * np.exp(-ax * ax)
+    return y if x >= 0.0 else -y
+
+
+@vectorize(["float64(float64)", "float32(float32)"], fastmath=True)
+def erfc(x):
+    return 1.0 - erf_as(x)

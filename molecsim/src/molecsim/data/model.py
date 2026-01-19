@@ -1,10 +1,10 @@
 from __future__ import annotations
-
 import typing
 from molecsim.data.chargetable import ChargeTable
 from molecsim.data.data import StructureArray
 from molecsim.data.ljtable import LJTable
 from molecsim.data.typeregistry import TypeRegistry
+import numpy as np
 
 if typing.TYPE_CHECKING:
     from molecsim.data.molecule import Molecule
@@ -35,7 +35,7 @@ class ModelConstants:
         self._qtable = qtable
         self._ljtable = ljtable
         self._tolerance = tolerance
-        self._cutoff = cutoff
+        self._cutoff = cutoff if cutoff < np.inf else 1e12
         self._k_b = k_b
         self._coulomb_coeff = coulomb_coeff
 

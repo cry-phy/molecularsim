@@ -37,7 +37,7 @@ def coulomb(
     dists[~mask] = np.inf
     charge_prods = data.charges[:, None] * molecule_data.charges[None, :]
     intra_cut = erfc(dists - model.cutoff)
-    extra_potentials = charge_prods / dists * intra_cut
+    extra_potentials = charge_prods / dists * intra_cut / 2
     extra_part = np.sum(model.coulomb_coeff * extra_potentials)
 
     # Calculate interactions within the molecule only
@@ -49,7 +49,7 @@ def coulomb(
     intra_dists[~intra_mask] = np.inf
     intra_charge_prods = molecule_data.charges[None, :] * molecule_data.charges[:, None]
     intra_cut = erfc(intra_dists - model.cutoff)
-    intra_potentials = intra_charge_prods / intra_dists * intra_cut
+    intra_potentials = intra_charge_prods / intra_dists * intra_cut / 2
     intra_part = np.sum(model.coulomb_coeff * intra_potentials)
 
     return extra_part + intra_part
