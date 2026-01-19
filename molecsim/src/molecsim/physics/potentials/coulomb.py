@@ -1,3 +1,5 @@
+from typing import Any
+from molecsim.data.contributors import Contribution
 from molecsim.data.data import SystemData
 from molecsim.data.model import ModelConstants
 from molecsim.data.properties import SystemProperties
@@ -15,6 +17,8 @@ def coulomb(
     molecule_data: SystemData,
     props: SystemProperties,
     model: ModelConstants,
+    *,
+    contribution: Contribution | None = None,
 ) -> float:
     """Calculate coulomb interaction between molecule_data atoms and data atoms."""
     if len(molecule_data) > len(data):

@@ -9,7 +9,7 @@ from molecsim.data.system import SimSystem
 from molecsim.physics.geometry import BOUND_EPS
 from molecsim.utils.place import randomized_system
 from molecsim.data.rng import RNG
-from tests.conftest import mock_model
+from tests.conftest import mock_model, mock_potential
 
 
 def pairwise_dists_mic(
@@ -51,10 +51,19 @@ def pairwise_dists(positions: np.ndarray):
     return np.linalg.norm(diff, axis=-1)
 
 
-def test_randomized_system_counts_and_views(mock_props, mock_model, test_rng):
+def test_randomized_system_counts_and_views(
+    mock_props,
+    mock_model,
+    mock_potential,
+    test_rng,
+):
     """Test that the randomized system has the correct counts and memory views."""
     sys = randomized_system(
-        mock_props, mock_model, test_rng, grid_function=_flex_dummy_grid
+        mock_props,
+        mock_model,
+        mock_potential,
+        test_rng,
+        grid_function=_flex_dummy_grid,
     )
     assert isinstance(sys, SimSystem)
     total_mols = sum(mock_props.molecules.values())
@@ -64,7 +73,7 @@ def test_randomized_system_counts_and_views(mock_props, mock_model, test_rng):
     assert np.shares_memory(sys.molecules[0].data.positions, sys.data.positions)
 
 
-def test_nonperiodic_is_rigidly_clamped_inside_box(mock_model):
+def test_nonperiodic_is_rigidly_clamped_inside_box(mock_model, mock_potential):
     """Test that non-periodic systems are rigidly clamped inside the box."""
     from numpy.linalg import norm
 
@@ -78,7 +87,7 @@ def test_nonperiodic_is_rigidly_clamped_inside_box(mock_model):
         molecules={mol: 1}, box=box, temperature=300.0, periodic=False
     )
     rng = RNG(123)
-    sys = randomized_system(props, mock_model, rng)
+    sys = randomized_system(props, mock_model, mock_potential, rng)
     pos = sys.data.positions.copy()
     assert np.all(pos >= -BOUND_EPS)
     assert np.all(pos <= box + BOUND_EPS)
@@ -88,7 +97,7 @@ def test_nonperiodic_is_rigidly_clamped_inside_box(mock_model):
     )
 
 
-def test_periodic_wraps_instead_of_error_or_clamp(mock_model):
+def test_periodic_wraps_instead_of_error_or_clamp(mock_model, mock_potential):
     """Test that periodic systems wrap molecules instead of erroring or clamping."""
     mol = _proto(mock_model)
     box = np.array([2.0, 1.5, 1.0], dtype=float)
@@ -96,13 +105,13 @@ def test_periodic_wraps_instead_of_error_or_clamp(mock_model):
         molecules={mol: 1}, box=box, temperature=300.0, periodic=True
     )
     rng = RNG(123)
-    sys = randomized_system(props, mock_model, rng)
+    sys = randomized_system(props, mock_model, mock_potential, rng)
     pos = sys.data.positions
     assert np.all(pos >= -1e-9)
     assert np.all(pos <= box + 1e-9)
 
 
-def test_nonperiodic_raises_if_molecule_larger_than_box(mock_model):
+def test_nonperiodic_raises_if_molecule_larger_than_box(mock_model, mock_potential):
     """Test that non-periodic systems raise an error if a molecule is larger than the box."""
     # Make the prototype wider than the box along x
     mol = _proto(mock_model)
@@ -112,12 +121,20 @@ def test_nonperiodic_raises_if_molecule_larger_than_box(mock_model):
     )
     rng = RNG(123)
     with pytest.raises(ValueError):
-        randomized_system(props, mock_model, rng)
+        randomized_system(props, mock_model, mock_potential, rng)
 
 
-def test_randomized_system_rigid_body_invariance(props, mock_model, test_rng):
+def test_randomized_system_rigid_body_invariance(
+    props, mock_model, mock_potential, test_rng
+):
     """Test that the randomized system preserves rigid body invariance."""
-    sys = randomized_system(props, mock_model, test_rng, grid_function=_flex_dummy_grid)
+    sys = randomized_system(
+        props,
+        mock_model,
+        mock_potential,
+        test_rng,
+        grid_function=_flex_dummy_grid,
+    )
 
     periodic = getattr(props, "periodic", True)
     box = props.box if periodic else None
@@ -134,7 +151,9 @@ def test_randomized_system_rigid_body_invariance(props, mock_model, test_rng):
         ), "Placed molecule does not match any prototype's internal distances under MIC"
 
 
-def test_randomized_system_custom_grid_is_used(props, mock_model, test_rng):
+def test_randomized_system_custom_grid_is_used(
+    props, mock_model, mock_potential, test_rng
+):
     """Test that a custom grid function is used by the randomized system."""
     calls = {}
 
@@ -146,7 +165,13 @@ def test_randomized_system_custom_grid_is_used(props, mock_model, test_rng):
             [xs, np.zeros(n, dtype=FLOAT_DTYPE), np.zeros(n, dtype=FLOAT_DTYPE)], axis=1
         )
 
-    sys = randomized_system(props, mock_model, test_rng, grid_function=recorder)
+    sys = randomized_system(
+        props,
+        mock_model,
+        mock_potential,
+        test_rng,
+        grid_function=recorder,
+    )
 
     # grid function received expected inputs
     assert calls.get("n") == sum(props.molecules.values())

@@ -1,7 +1,8 @@
+from molecsim.data.contributors import SystemPotentials
 from molecsim.data.data import SystemData
 from molecsim.data.model import ModelConstants
 from molecsim.data.properties import SystemProperties
-from molecsim.data.system import SimSystem
+from molecsim.data.system import SimSystem, SystemUpdater
 from molecsim.physics.mutate import mutate_rotate
 from molecsim.physics.geometry import contain_to_box, fuzzyfy
 from molecsim.utils.grids import simple_cubic
@@ -11,6 +12,7 @@ from molecsim.data.rng import RNG
 def randomized_system(
     properties: SystemProperties,
     model: ModelConstants,
+    potentials: SystemPotentials,
     rng: RNG,
     grid_function=simple_cubic,
 ) -> SimSystem:
@@ -35,4 +37,5 @@ def randomized_system(
         contain_to_box(rotated.data, properties)
         rotated.move_to(molecule_slice)
         molecules.append(rotated)
-    return SimSystem(data, molecules, properties, model)
+    updater = SystemUpdater(potentials)
+    return SimSystem(data, molecules, properties, model, updater)

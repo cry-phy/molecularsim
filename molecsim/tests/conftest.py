@@ -1,12 +1,70 @@
-# conftest.py (or your tests module)
+from typing import Any
 import pytest
 import numpy as np
 
+from molecsim.data.contributors import Contribution, SystemPotentials, make_potcall
 from molecsim.data.molecule import Molecule
 from molecsim.data.properties import SystemProperties
 from molecsim.data.rng import RNG
 from molecsim.data.data import FLOAT_DTYPE, SystemData
-from molecsim.data.system import SimSystem
+from molecsim.data.system import SimSystem, SystemUpdater
+
+
+class MockUpdater:
+    """An updatable object that consumes cached payloads on acceptance."""
+
+    def __init__(self, name: str = "MockUpdater") -> None:
+        self.name = name
+        self.last_old = None
+        self.last_new = None
+        self.calls = 0
+
+    def __update__(self, old, new):
+        # By convention, SystemUpdater calls:
+        #   obj.__update__(old_contribution, new_contribution)
+        self.calls += 1
+
+        reg = getattr(new, "registry", None)
+        if reg is None:
+            # No registry attached -> nothing cached; still record update.
+            self.last_old = None
+            self.last_new = None
+            return
+
+        # Must match the suffix used by the potential below.
+        k_old = reg.cache_key(self, "payload")
+        k_new = reg.cache_key(self, "payload")
+
+        self.last_old = old.cache.get(k_old, None)
+        self.last_new = new.cache.get(k_new, None)
+
+
+@pytest.fixture
+def mock_updater() -> MockUpdater:
+    return MockUpdater()
+
+
+class _MockPotential:
+    def __init__(self, updater=None):
+        self.updater = updater
+
+    def __call__(self, *args, **kwargs) -> float:
+        return 0.0
+
+
+@pytest.fixture
+def mock_potential(mock_updater) -> SystemPotentials:
+    """Real SystemPotentials with one PotCall; updater is discoverable via args."""
+    pot = _MockPotential(updater=mock_updater)
+
+    pc = make_potcall(
+        pot,
+        mock_updater,
+        name="mock_potential",
+        enabled=True,
+    )
+
+    return SystemPotentials((pc,))
 
 
 class _MockRegistry:
@@ -48,8 +106,8 @@ class MockModel:
     def __init__(self) -> None:
         self._registry = _MockRegistry()
         self._qtable = _MockQTable()
-        self._k_b = 0.0019872041  # kcal/mol/K (not used here)
-        self._coulomb = 1.0  # unitless in your tests
+        self._k_b = 0.0019872041
+        self._coulomb = 1.0
         self._cutoff = np.inf
 
     @property
@@ -163,7 +221,13 @@ def flex_dummy_grid():
 
 @pytest.fixture
 def lin_sum_x():
-    def energy(data1: SystemData, data2: SystemData, bias: float = 0.0) -> float:
+    def energy(
+        data1: SystemData,
+        data2: SystemData,
+        bias: float = 0.0,
+        *,
+        contribution: Contribution,
+    ) -> float:
         return float(np.sum(data1.positions[:, 0]) + bias)
 
     return energy
@@ -171,7 +235,6 @@ def lin_sum_x():
 
 @pytest.fixture
 def simsys(test_molecule: Molecule, second_proto: Molecule, mock_model: MockModel):
-    """Simple system for interaction."""
     atoms = np.array(["A", "B"])
     pos = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
     charges = np.zeros(2)
@@ -179,7 +242,6 @@ def simsys(test_molecule: Molecule, second_proto: Molecule, mock_model: MockMode
         np.array([mock_model.registry.index_of(a) for a in atoms]), pos, charges
     )
 
-    # New SystemProperties signature (no molecules dict here)
     props = SystemProperties(
         molecules={test_molecule: 2, second_proto: 1},
         box=np.array([5.0, 5.0, 5.0], dtype=float),
@@ -187,10 +249,15 @@ def simsys(test_molecule: Molecule, second_proto: Molecule, mock_model: MockMode
         periodic=True,
     )
 
-    # Your SimSystem constructor may accept model now; if so, pass it:
-    # return SimSystem(contigous_data=data, molecules=(), properties=props, model=mock_model)
+    potentials = SystemPotentials(())  # empty is fine for these fixtures
+    updater = SystemUpdater(potentials)
+
     return SimSystem(
-        contigous_data=data, molecules=(), properties=props, model=mock_model
+        contigous_data=data,
+        molecules=(),
+        properties=props,
+        model=mock_model,
+        updater=updater,
     )
 
 

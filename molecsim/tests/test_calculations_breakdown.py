@@ -17,7 +17,7 @@ def test_breakdown_matches_sum_and_preserves_order(simsys, lin_sum_x):
     parts = potential_breakdown(simsys, forces)
     names, vals = zip(*parts)
     assert names == ("E1", "E2")
-    assert np.isclose(sum(vals), full_potential(simsys, forces))
+    assert np.isclose(sum(vals), full_potential(simsys, forces).potential)
 
 
 def test_breakdown_include_disabled_flag(simsys, lin_sum_x):

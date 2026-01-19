@@ -1,9 +1,11 @@
+from molecsim.data.contributors import Contribution, cache_value, uncache_value
 from molecsim.data.data import COMPLEX_TYPE, StructureArray, SystemData
 from molecsim.data.model import ModelConstants
 from molecsim.data.properties import SystemProperties
 import numpy as np
 import numpy.typing as npt
 
+from molecsim.data.system import SimSystem
 from molecsim.physics.potentials.coulomb import coulomb
 
 
@@ -114,6 +116,26 @@ class EwaldProperties:
         if self._s_reuse_counter >= self._max_s_reuse:
             self.refresh_s(data, model)
 
+    def __update__(
+        self,
+        sim: SimSystem,
+        old_contribution: Contribution,
+        new_contribution: Contribution,
+        key: str,
+    ) -> None:
+        """Update method used to update cached quantities."""
+        old_cache = uncache_value(self, "s", old_contribution)
+        new_cache = uncache_value(self, "s", new_contribution)
+        self._s += new_cache - old_cache
+
+    def cache_s(self, s: npt.NDArray[COMPLEX_TYPE], contribution: Contribution) -> None:
+        """Cache S(k) to known key."""
+        cache_value(self, "s", s, contribution)
+
+    def uncache_s(self, contribution: Contribution) -> npt.NDArray[COMPLEX_TYPE]:
+        """Get S(k) from cache."""
+        return uncache_value(self, "s", contribution)
+
 
 def generate_ewald(
     data: SystemData,
@@ -159,13 +181,15 @@ def reciprocal_ewald(
     molecule_data: SystemData,
     model: ModelConstants,
     ewald_props: EwaldProperties,
+    contribution: Contribution,
 ) -> float:
     """Compute Coulomb contribution of molecule with ewald potential."""
     s_molecule = compute_s(molecule_data, ewald_props)
+    ewald_props.cache_s(s_molecule, contribution)
     s_rest = ewald_props.s - s_molecule
     mode_parts = s_molecule**2 + 2 * np.real(s_molecule * np.conjugate(s_rest))
-    contribution = np.sum(ewald_props.ws * mode_parts).astype(float).value
-    return model.coulomb_coeff * contribution
+    contrib = np.sum(ewald_props.ws * mode_parts).astype(float).value
+    return model.coulomb_coeff * contrib
 
 
 def ewald(
@@ -174,6 +198,8 @@ def ewald(
     props: SystemProperties,
     model: ModelConstants,
     ewald_props: EwaldProperties,
+    *,
+    contribution: Contribution,
 ) -> float:
     """Compute Coulomb contribution with ewald potential."""
     real_part = coulomb(
@@ -182,5 +208,5 @@ def ewald(
         props,
         model,
     )
-    reciprocal_part = reciprocal_ewald(molecule_data, model, ewald_props)
+    reciprocal_part = reciprocal_ewald(molecule_data, model, ewald_props, contribution)
     return real_part + reciprocal_part

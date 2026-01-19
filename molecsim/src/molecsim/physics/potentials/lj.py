@@ -1,3 +1,5 @@
+from typing import Any
+from molecsim.data.contributors import Contribution
 from molecsim.data.data import SystemData, FLOAT_DTYPE
 from molecsim.data.model import ModelConstants
 from molecsim.data.properties import SystemProperties
@@ -34,6 +36,8 @@ def lennard_jones(
     molecule_data: SystemData,
     props: SystemProperties,
     model: ModelConstants,
+    *,
+    contribution: Contribution | None = None,
 ) -> float:
     """LJ interaction using per-type A_ij,B_ij from model.lj_for, looping only over present types."""
     if len(molecule_data) > len(data):
@@ -60,7 +64,7 @@ def lennard_jones(
 
             sub_r2 = r2[np.ix_(Ii, Jj)]
             sub_mask = mask[np.ix_(Ii, Jj)]
-            extra_sum += _sum_lj_block(sub_r2, sub_mask, Aij, Bij)
+            extra_sum += _sum_lj_block(sub_r2, sub_mask, Aij, Bij, cut=model.cutoff)
 
     intra_r2 = distance_squares(
         molecule_data, molecule_data, props.box, periodic=props.periodic
@@ -79,6 +83,6 @@ def lennard_jones(
 
             sub_r2 = intra_r2[np.ix_(Ii, Jj)]
             sub_mask = intra_mask[np.ix_(Ii, Jj)]
-            intra_sum += _sum_lj_block(sub_r2, sub_mask, Aij, Bij)
+            intra_sum += _sum_lj_block(sub_r2, sub_mask, Aij, Bij, cut=model.cutoff)
 
     return extra_sum + intra_sum

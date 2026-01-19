@@ -1,6 +1,7 @@
 """Modlue for encapsulating all potentials.
 
-All force Calculations should be made using a function following PotContributor Signature.
+All potential Calculations should be made using a function following PotContributor Signature.
+If potentials need to be cache data it needs to be passed an object caching the data following the PotCache contributor, which is passed to the PotContributor as argument (reference ewald summation for example).
 """
 
 from molecsim.physics.potentials.ewald import ewald
