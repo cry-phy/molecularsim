@@ -101,7 +101,7 @@ def time_one_step(sim, forces, rng: RNG) -> int:
     )
     old_E = molecule_potential(sim, old_mol, forces)
     new_E = molecule_potential(sim, new_mol, forces)
-    dE = new_E - old_E
+    dE = new_E.potential - old_E.potential
     _ = metropolis(sim.properties, sim.model, dE, rng)
     t1 = time.perf_counter_ns()
     return t1 - t0
@@ -208,8 +208,8 @@ def main():
             temperature=args.temperature,
             periodic=args.periodic,
         )
-        sim = randomized_system(props, model, rng)
         forces = make_forces(props, model)
+        sim = randomized_system(props, model, forces, rng)
 
         # Warm-up
         _ = time_one_step(sim, forces, rng)
