@@ -4,7 +4,7 @@ from molecsim.data.model import ModelConstants
 from molecsim.data.molecule import Molecule
 from molecsim.data.properties import SystemProperties
 from molecsim.data.system import SimSystem
-from molecsim.data.contributors import PotCall, SystemPotentials
+from molecsim.data.contributors import Contribution, PotCall, SystemPotentials
 from molecsim.physics.geometry import distance_squares
 from collections.abc import Iterable
 import numpy.typing as npt
@@ -12,30 +12,34 @@ import numpy as np
 
 
 def _iter_enabled(
-    forces: Iterable[PotCall], *, include_disabled: bool
+    potentials: Iterable[PotCall],
+    *,
+    include_disabled: bool,
 ) -> Iterable[PotCall]:
-    """Normalize any iterable of PotCall and optionally filter disabled terms."""
-    if isinstance(forces, SystemPotentials):
-        return forces if include_disabled else forces.enabled()
-    return forces if include_disabled else (pc for pc in forces if pc.enabled)
+    if include_disabled:
+        return potentials
+    return (pc for pc in potentials if pc.enabled)
 
 
 def potential_breakdown(
     system: SimSystem,
-    forces: Iterable[PotCall] | SystemPotentials,
+    potentials: SystemPotentials,
     *,
     include_disabled: bool = False,
 ) -> list[tuple[str | None, float]]:
     """Evaluate each term and return (name, contribution) pairs for the whole system."""
     return calculate_breakdown(
-        system.data, system.data, forces, include_disabled=include_disabled
+        system.data,
+        system.data,
+        potentials,
+        include_disabled=include_disabled,
     )
 
 
 def calculate_breakdown(
     large_data: SystemData,
     small_data: SystemData,
-    forces: Iterable[PotCall] | SystemPotentials,
+    potentials: SystemPotentials,
     *,
     include_disabled: bool = False,
 ) -> list[tuple[str | None, float]]:
@@ -44,51 +48,73 @@ def calculate_breakdown(
     - name may be None when not provided.
     - Respects enabled flags unless include_disabled=True.
     """
-    parts: list[tuple[str | None, float]] = []
-    for fn, args, kwargs, name, enabled in _iter_enabled(
-        forces, include_disabled=include_disabled
-    ):
-        if include_disabled or enabled:
-            parts.append((name, float(fn(large_data, small_data, *args, **kwargs))))
-    return parts
+    contrib = calculate_potential(
+        large_data=large_data,
+        small_data=small_data,
+        potentials=potentials,
+        include_disabled=include_disabled,
+    )
+    pcs = [pc for pc in potentials if include_disabled or pc.enabled]
+    vals = contrib.get_potentials()
+    split = [(pc.name, v) for pc, v in zip(pcs, vals, strict=True)]
+    return split
 
 
 def full_potential(
     system: SimSystem,
-    forces: Iterable[PotCall] | SystemPotentials,
+    potentials: SystemPotentials,
     *,
     include_disabled: bool = False,
-) -> float:
+) -> Contribution:
     """Sum the system potential over all (enabled) terms."""
     return calculate_potential(
-        system.data, system.data, forces, include_disabled=include_disabled
+        system.data,
+        system.data,
+        potentials,
+        include_disabled=include_disabled,
     )
 
 
 def calculate_potential(
     large_data: SystemData,
     small_data: SystemData,
-    forces: Iterable[PotCall] | SystemPotentials,
+    potentials: SystemPotentials,
     *,
     include_disabled: bool = False,
-) -> float:
-    """Sum over all potential contributions from the small data subset.
+) -> Contribution:
+    """Sum over all potential contributions from the small data subset."""
+    contrib = Contribution(
+        [],
+        cache={},
+        molecule=small_data,
+        registry=potentials.registry,
+    )
 
-    - By default, disabled terms are skipped. This removes a sharp edge where callers forget `.enabled()`.
-    - If you already filter upstream, behavior is identical.
-    """
-    total = 0.0
-    for fn, args, kwargs, _, enabled in _iter_enabled(
-        forces, include_disabled=include_disabled
-    ):
-        if include_disabled or enabled:
-            total += float(fn(large_data, small_data, *args, **kwargs))
-    return total
+    for pc in _iter_enabled(potentials, include_disabled=include_disabled):
+        fn, args, kwargs, _, enabled = pc
+        if not (include_disabled or enabled):
+            continue
+
+        e = float(
+            fn(
+                large_data,
+                small_data,
+                *args,
+                **kwargs,
+                contribution=contrib,
+            )
+        )
+
+        contrib.add_potential(e)
+
+    return contrib
 
 
 def molecule_potential(
-    sim: SimSystem, molecule: Molecule, potentials: SystemPotentials
-) -> float:
+    sim: SimSystem,
+    molecule: Molecule,
+    potentials: SystemPotentials,
+) -> Contribution:
     """Calculate Potential contribution for single molecule."""
     return calculate_potential(sim.data, molecule.data, potentials)
 

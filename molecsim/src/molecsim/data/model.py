@@ -1,10 +1,10 @@
 from __future__ import annotations
-
 import typing
 from molecsim.data.chargetable import ChargeTable
 from molecsim.data.data import StructureArray
 from molecsim.data.ljtable import LJTable
 from molecsim.data.typeregistry import TypeRegistry
+import numpy as np
 
 if typing.TYPE_CHECKING:
     from molecsim.data.molecule import Molecule
@@ -17,6 +17,7 @@ class ModelConstants:
       - TypeRegistry (name <-> index)
       - ChargeTable (per-type charges)
       - LJTable (mixed A_ij, B_ij)
+      - Cutoff parameters (Cut distance, Tolerance)
       - Physical constants (k_B, Coulomb coeff)
     """
 
@@ -25,26 +26,43 @@ class ModelConstants:
         registry: TypeRegistry,
         qtable: ChargeTable,
         ljtable: LJTable,
+        tolerance: float = 1e-7,
+        cutoff: float = 10,
         k_b: float = 0.0019872041,
         coulomb_coeff: float = 332.06371,
     ) -> None:
         self._registry = registry
         self._qtable = qtable
         self._ljtable = ljtable
+        self._tolerance = tolerance
+        self._cutoff = cutoff if cutoff < np.inf else 1e12
         self._k_b = k_b
         self._coulomb_coeff = coulomb_coeff
 
     @property
     def registry(self) -> TypeRegistry:
+        """Atom Type conversion table property."""
         return self._registry
 
     @property
     def qtable(self) -> ChargeTable:
+        """Charge Table property."""
         return self._qtable
 
     @property
     def ljtable(self) -> LJTable:
+        """Lennard Jones coefficient table property."""
         return self._ljtable
+
+    @property
+    def tolerance(self):
+        """The tolerance property."""
+        return self._tolerance
+
+    @property
+    def cutoff(self):
+        """The cutoff property."""
+        return self._cutoff
 
     @property
     def k_b(self) -> float:

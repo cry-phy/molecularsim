@@ -1,14 +1,14 @@
 from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
-from typing import Final
-from collections.abc import Iterable
 
 
-FLOAT_DTYPE: Final = np.float64
-INT_DTYPE: Final = np.int32
+FLOAT_DTYPE = np.float64
+INT_DTYPE = np.int32
+COMPLEX_TYPE = np.complex128
 
-type FloatPrecision = np.float64
+type ComplexPrecision = COMPLEX_TYPE
+type FloatPrecision = FLOAT_DTYPE
 type StructureArray = npt.NDArray[FloatPrecision]
 type StructureView = StructureArray
 

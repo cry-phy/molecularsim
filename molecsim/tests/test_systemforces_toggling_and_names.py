@@ -19,10 +19,10 @@ def test_toggling_and_names_helpers_exist(simsys, lin_sum_x):
     toggled = forces.with_disabled("E2", "E3")
     assert toggled.names() == ("E1", "E2", "E3")  # names unchanged
     v1 = full_potential(simsys, toggled)
-    assert np.isclose(v1, 1.0)  # sum_x=1.0 + bias 0.0
+    assert np.isclose(v1.potential, 1.0)  # sum_x=1.0 + bias 0.0
 
     # Re-enable E3 only
     re_enabled = toggled.with_enabled("E3")
     v2 = full_potential(simsys, re_enabled)
     # contributions: E1 -> 1.0, E3 -> 1.0+2.0 = 3.0; total 4.0
-    assert np.isclose(v2, 4.0)
+    assert np.isclose(v2.potential, 4.0)

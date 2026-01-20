@@ -10,6 +10,7 @@ python src/apps/debug_viewer.py \
 
 from __future__ import annotations
 
+from molecsim.data.contributors import SystemPotentials
 import numpy as np
 
 from molecsim.utils.models import tip3p
@@ -39,7 +40,9 @@ def main() -> None:
         periodic=args.periodic,
     )
 
-    sim = randomized_system(props, model, rng)
+    potentials = SystemPotentials([])
+
+    sim = randomized_system(props, model, potentials, rng)
 
     fig, _ = plot_system(sim)
     fig = add_periodic_debug_traces(fig, sim)
