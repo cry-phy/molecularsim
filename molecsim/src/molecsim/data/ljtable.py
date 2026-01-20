@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 
 from molecsim.data.data import StructureArray
 
@@ -8,8 +8,7 @@ type MixingRule = Callable[[StructureArray, StructureArray], StructureArray]
 
 
 def lbmixing(epsilons: StructureArray, sigmas: StructureArray) -> StructureArray:
-    """L
-    orentz-Berthelot mixing with shape (T, T, 2)."""
+    """Lorentz-Berthelot mixing with shape (T, T, 2)."""
     eps = np.asarray(epsilons, dtype=float)
     sig = np.asarray(sigmas, dtype=float)
 

@@ -377,6 +377,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=True,
         help="Toggles PBC.",
     )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=os.cpu_count(),
+        help="Sets number of threads in Numba.",
+    )
 
     args = parser.parse_args(argv)
 

@@ -2,61 +2,82 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-import numpy as np
 import csv
 
+import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # --- your project imports ---
 from molecsim.physics.calculations import full_potential, molecule_potential
 from molecsim.data.contributors import make_potcall, SystemPotentials
 from molecsim.data.properties import SystemProperties
 from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
-from molecsim.physics.potentials import coulomb, lennard_jones
+from molecsim.physics.potentials import (
+    coulomb,
+    lennard_jones,
+    coulomb_njit,
+    coulomb_dense,
+    coulomb_gpu,
+    # coulomb_stream,
+    lennard_jones_njit,
+    lennard_jones_dense,
+    lennard_jones_gpu,
+    # lennard_jones_stream,
+)
 from molecsim.physics.mc import metropolis
 from molecsim.utils.models import tip3p
 from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_args, parse_com
 from molecsim.data.rng import RNG
 
+
 # -------------------------------
 # Internal sweep controls (no CLI)
 # -------------------------------
-# Loop (compute-only) sweep up to 5e4
 _LOOP_MIN = 10
 _LOOP_MAX = 50_000
 _LOOP_POINTS = 14  # log-spaced points
 
-# Full potential sweep up to 2e3
 _FULL_MIN = 10
 _FULL_MAX = 2_000
 _FULL_POINTS = 12  # log-spaced points
 
 
 def _add_order_ref_line(
-    fig: go.Figure, N_list: list[int], y_list: list[float], order: int, name: str
+    fig: go.Figure,
+    N_list: list[int],
+    y_list: list[float],
+    order: int,
+    name: str,
+    *,
+    row: int | None = None,
+    col: int | None = None,
 ) -> None:
-    """Add an O(N^order) reference line anchored at the highest-N data point."""
+    """Add an O(N^order) reference line anchored at the highest-N point."""
     if not N_list or not y_list:
         return
-    # Use the actual highest-N point as the anchor
-    idx_max = int(np.argmax(N_list))
+
+    idx_max = int(np.argmax(np.asarray(N_list, dtype=float)))
     N_max = float(N_list[idx_max])
     y_max = float(y_list[idx_max])
 
     Ns = np.array(sorted(set(N_list)), dtype=float)
     y_ref = y_max * (Ns / N_max) ** order
 
-    fig.add_trace(
-        go.Scatter(
-            x=Ns.tolist(),
-            y=y_ref.tolist(),
-            mode="lines",
-            name=name,
-            line=dict(width=2, dash="dash"),
-            showlegend=True,
-        )
+    trace = go.Scatter(
+        x=Ns.tolist(),
+        y=y_ref.tolist(),
+        mode="lines",
+        name=name,
+        line=dict(width=2, dash="dash"),
+        showlegend=True,
     )
+
+    if row is None or col is None:
+        fig.add_trace(trace)
+    else:
+        fig.add_trace(trace, row=row, col=col)
 
 
 def logspace_ints(nmin: int, nmax: int, k: int) -> list[int]:
@@ -68,7 +89,6 @@ def logspace_ints(nmin: int, nmax: int, k: int) -> list[int]:
         vals[0] = nmin
     if vals[-1] != nmax:
         vals[-1] = nmax
-    # strictly increasing
     clean = [vals[0]]
     for v in vals[1:]:
         if v > clean[-1]:
@@ -82,13 +102,83 @@ def scale_box(base_box, base_mols: int, target_mols: int) -> np.ndarray:
     return base_box * factor
 
 
-def make_forces(props: SystemProperties, model) -> SystemPotentials:
+def make_simple(props: SystemProperties, model) -> SystemPotentials:
     return SystemPotentials(
         [
             make_potcall(coulomb, props, model),
             make_potcall(lennard_jones, props, model),
         ]
     )
+
+
+def make_njit(props: SystemProperties, model) -> SystemPotentials:
+    return SystemPotentials(
+        [
+            make_potcall(coulomb_njit, props, model),
+            make_potcall(lennard_jones_njit, props, model),
+        ]
+    )
+
+
+def make_dense(props: SystemProperties, model) -> SystemPotentials:
+    return SystemPotentials(
+        [
+            make_potcall(coulomb_dense, props, model),
+            make_potcall(lennard_jones_dense, props, model),
+        ]
+    )
+
+
+# def make_stream(props: SystemProperties, model) -> SystemPotentials:
+#     return SystemPotentials(
+#         [
+#             make_potcall(coulomb_stream, props, model),
+#             make_potcall(lennard_jones_stream, props, model),
+#         ]
+#     )
+
+
+def make_gpu(props: SystemProperties, model) -> SystemPotentials:
+    return SystemPotentials(
+        [
+            make_potcall(coulomb_gpu, props, model),
+            make_potcall(lennard_jones_gpu, props, model),
+        ]
+    )
+
+
+def preflight_forces(
+    force_sets,
+    props: SystemProperties,
+    model,
+    proto,
+    rng: RNG,
+) -> None:
+    """Run each force set once to catch errors before benchmarking."""
+    print("\n=== PREFLIGHT: validating force sets ===")
+    for key, label, builder, *_ in force_sets:
+        try:
+            forces = builder(props, model)
+            sim = randomized_system(props, model, forces, rng)
+
+            # single mutation step
+            old_mol, new_mol, _ = propose_new(
+                sim,
+                [mutate_rotate, mutate_translate],
+                [0.5, 1.0],
+                rng,
+            )
+
+            _ = molecule_potential(sim, old_mol, forces)
+            _ = molecule_potential(sim, new_mol, forces)
+            _ = full_potential(sim, forces)
+
+            print(f"[OK] {key:>8s} — {label}")
+        except Exception as e:
+            print(f"[FAIL] {key:>8s} — {label}")
+            raise RuntimeError(
+                f"Preflight failed for force set '{key}' ({label})"
+            ) from e
 
 
 def time_one_step(sim, forces, rng: RNG) -> int:
@@ -115,29 +205,28 @@ def time_full(sim, forces) -> int:
 
 
 def _apply_report_style(fig: go.Figure, title: str) -> None:
-    """Light theme & report-friendly layout."""
     fig.update_layout(
         template="plotly_white",
         title=title,
         paper_bgcolor="white",
         plot_bgcolor="white",
         font=dict(family="DejaVu Sans, Arial, Helvetica, sans-serif", size=14),
-        legend=dict(orientation="h", x=0.0, y=1.08),
+        legend=dict(orientation="h", x=0.0, y=1.10),
         margin=dict(l=60, r=20, t=70, b=55),
-        xaxis=dict(
-            type="log",
-            title="Molecules (N)",
-            showgrid=True,
-            gridcolor="#e6e6e6",
-            zeroline=False,
-        ),
-        yaxis=dict(
-            type="log",
-            title="Time (ms)",
-            showgrid=True,
-            gridcolor="#e6e6e6",
-            zeroline=False,
-        ),
+    )
+    fig.update_xaxes(
+        type="log",
+        title="Molecules (N)",
+        showgrid=True,
+        gridcolor="#e6e6e6",
+        zeroline=False,
+    )
+    fig.update_yaxes(
+        type="log",
+        title="Time (ms)",
+        showgrid=True,
+        gridcolor="#e6e6e6",
+        zeroline=False,
     )
 
 
@@ -149,11 +238,8 @@ def _write_plot(
     width_px: int = 1100,
     height_px: int = 680,
 ) -> None:
-    """Write HTML + PNG + SVG; sizes chosen to fit reports (single column)."""
     fig.write_html(html_path, include_plotlyjs="cdn")
     try:
-        # For crisp print: export at explicit size; SVG is vector (best for LaTeX)
-        # Requires: pip install -U kaleido
         fig.write_image(
             png_path, format="png", width=width_px, height=height_px, scale=1
         )
@@ -166,39 +252,85 @@ def _write_plot(
         )
 
 
+def _inset_ranges_from_top(
+    Ns: list[int],
+    Ys: list[float],
+    *,
+    factor_N: float = 0.10,
+    factor_Y: float = 0.35,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Inset limits focusing on the highest-N region."""
+    if not Ns or not Ys:
+        return ((1.0, 2.0), (1.0, 2.0))
+    Ns_arr = np.asarray(Ns, dtype=float)
+    Ys_arr = np.asarray(Ys, dtype=float)
+    N_max = float(Ns_arr.max())
+    y_max = float(Ys_arr[Ns_arr.argmax()])
+    x_lo = max(float(Ns_arr.min()), N_max * (1.0 - factor_N))
+    x_hi = N_max
+    y_lo = max(float(Ys_arr.min()), y_max * (1.0 - factor_Y))
+    y_hi = max(y_max, float(Ys_arr.max()))
+    return (x_lo, x_hi), (y_lo, y_hi)
+
+
 def main():
-    # Use your parser exactly
+    import numba
+
     args = parse_args()
+    numba.set_num_threads(args.threads)
+    print("=== Config ===")
+    print(f"Threads: {numba.get_num_threads()}")
 
     outdir = Path("out")
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Outputs (separate files for loop vs full)
-    loop_csv = outdir / "bench_loop_step.csv"
-    full_csv = outdir / "bench_full_potential.csv"
-
-    loop_html = outdir / "bench_loop_step.html"
-    loop_png = outdir / "bench_loop_step.png"
-    loop_svg = outdir / "bench_loop_step.svg"
-
-    full_html = outdir / "bench_full_potential.html"
-    full_png = outdir / "bench_full_potential.png"
-    full_svg = outdir / "bench_full_potential.svg"
-
     model = tip3p()
-    # Use ONLY the first file as prototype species
     proto = parse_com(args.files[0], model)
 
     base_mols = max(1, sum(args.numbers))
     base_box = np.asarray(args.box, dtype=float)
 
+    # ---------------------------------------------------
+    # Define multiple force sets here
+    # Each entry: (key, label, builder, ref_order_loop, ref_order_full)
+    # ---------------------------------------------------
+    force_sets = [
+        # ("gpu", "Coulomb + LJ (gpu)", make_gpu, 1, 2),
+        # ("stream", "Coulomb + LJ (stream)", make_stream, 1, 2),
+        ("dense", "Coulomb + LJ (dense)", make_dense, 1, 2),
+        ("njit", "Coulomb + LJ (njit)", make_njit, 1, 2),
+        ("py", "Coulomb + LJ (Python)", make_simple, 1, 2),
+    ]
+
     # ---------------------------
-    # Loop sweep (up to 5e4)
+    # PREFLIGHT CHECK
+    # ---------------------------
+    rng_pre = RNG(args.seed + 999)
+
+    # smallest nontrivial system
+    pre_N = max(2, _LOOP_MIN)
+    mols = {proto: pre_N}
+    boxN = scale_box(base_box, base_mols, pre_N)
+
+    props_pre = SystemProperties(
+        molecules=mols,
+        box=boxN,
+        temperature=args.temperature,
+        periodic=args.periodic,
+    )
+
+    preflight_forces(force_sets, props_pre, model, proto, rng_pre)
+
+    # ---------------------------
+    # Loop sweep
     # ---------------------------
     rng = RNG(args.seed)
     n_loop = logspace_ints(_LOOP_MIN, _LOOP_MAX, _LOOP_POINTS)
 
-    loop_rows = []
+    loop_csv = outdir / "bench_loop_step.csv"
+    loop_rows: list[dict] = []
+
+    print("\n=== LOOP SWEEP (main-loop step) ===")
     for N in n_loop:
         mols = {proto: N}
         boxN = scale_box(base_box, base_mols, N)
@@ -208,100 +340,229 @@ def main():
             temperature=args.temperature,
             periodic=args.periodic,
         )
-        forces = make_forces(props, model)
-        sim = randomized_system(props, model, forces, rng)
 
-        # Warm-up
-        _ = time_one_step(sim, forces, rng)
+        # Build one sim per force set (keeps each benchmark consistent)
+        for key, label, builder, _, _ in force_sets:
+            forces = builder(props, model)
+            sim = randomized_system(props, model, forces, rng)
 
-        # Average over args.steps
-        times = np.empty(args.steps, dtype=np.int64)
-        for i in range(args.steps):
-            times[i] = time_one_step(sim, forces, rng)
-        step_ms = times.mean() * 1e-6
+            _ = time_one_step(sim, forces, rng)  # warm-up
 
-        loop_rows.append(
-            dict(molecules=N, Lx=boxN[0], Ly=boxN[1], Lz=boxN[2], step_ms=step_ms)
-        )
-        print(f"[LOOP N={N:6d}] step ≈ {step_ms:9.3f} ms")
+            times = np.empty(args.steps, dtype=np.int64)
+            for i in range(args.steps):
+                times[i] = time_one_step(sim, forces, rng)
+            step_ms = times.mean() * 1e-6
 
-    # Write loop CSV
+            loop_rows.append(
+                dict(
+                    kind="loop",
+                    force_key=key,
+                    force_label=label,
+                    molecules=N,
+                    Lx=float(boxN[0]),
+                    Ly=float(boxN[1]),
+                    Lz=float(boxN[2]),
+                    time_ms=float(step_ms),
+                )
+            )
+            print(f"[{key:>8s} LOOP N={N:6d}] step ≈ {step_ms:9.3f} ms")
+
     with open(loop_csv, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(loop_rows[0].keys()))
         w.writeheader()
         w.writerows(loop_rows)
 
-    # Plot loop (separate figure, light theme)
-    fig_loop = go.Figure()
-    # Existing main series
-    fig_loop.add_trace(
-        go.Scatter(
-            x=[r["molecules"] for r in loop_rows],
-            y=[r["step_ms"] for r in loop_rows],
-            mode="lines+markers",
-            name="Main-loop step (ms)",
-            line=dict(width=2),
-            marker=dict(size=6),
-        )
+    # Plot loop: main + inset focusing on highest-N region
+    fig_loop = make_subplots(
+        rows=1,
+        cols=2,
+        column_widths=[0.72, 0.28],
+        subplot_titles=("Main-loop step", "Inset: highest-N"),
+        horizontal_spacing=0.08,
     )
-    # NEW: O(N) reference anchored at highest-N point
-    _loop_Ns = [r["molecules"] for r in loop_rows]
-    _loop_Ys = [r["step_ms"] for r in loop_rows]
-    _add_order_ref_line(fig_loop, _loop_Ns, _loop_Ys, order=1, name="O(N) ref")
-    _apply_report_style(fig_loop, "Benchmark: MC main-loop step")
+
+    for key, label, _, ref_loop_order, _ in force_sets:
+        rows_k = [r for r in loop_rows if r["force_key"] == key]
+        Ns = [int(r["molecules"]) for r in rows_k]
+        Ys = [float(r["time_ms"]) for r in rows_k]
+
+        fig_loop.add_trace(
+            go.Scatter(
+                x=Ns,
+                y=Ys,
+                mode="lines+markers",
+                name=label,
+                line=dict(width=2),
+                marker=dict(size=6),
+            ),
+            row=1,
+            col=1,
+        )
+        fig_loop.add_trace(
+            go.Scatter(
+                x=Ns,
+                y=Ys,
+                mode="lines+markers",
+                name=label,
+                showlegend=False,
+                line=dict(width=2),
+                marker=dict(size=6),
+            ),
+            row=1,
+            col=2,
+        )
+
+        _add_order_ref_line(
+            fig_loop,
+            Ns,
+            Ys,
+            order=int(ref_loop_order),
+            name=f"{label}: O(N^{ref_loop_order}) ref",
+            row=1,
+            col=1,
+        )
+        _add_order_ref_line(
+            fig_loop,
+            Ns,
+            Ys,
+            order=int(ref_loop_order),
+            name=f"{label}: O(N^{ref_loop_order}) ref",
+            row=1,
+            col=2,
+        )
+
+        (x_lo, x_hi), (y_lo, y_hi) = _inset_ranges_from_top(Ns, Ys)
+        fig_loop.update_xaxes(range=[np.log10(x_lo), np.log10(x_hi)], row=1, col=2)
+        fig_loop.update_yaxes(range=[np.log10(y_lo), np.log10(y_hi)], row=1, col=2)
+
+    _apply_report_style(fig_loop, "Benchmark: MC main-loop step (multiple force sets)")
+    fig_loop.update_xaxes(title_text="Molecules (N)", row=1, col=1)
+    fig_loop.update_yaxes(title_text="Time (ms)", row=1, col=1)
+    fig_loop.update_xaxes(title_text="N (zoom)", row=1, col=2)
+    fig_loop.update_yaxes(title_text="ms (zoom)", row=1, col=2)
+
+    loop_html = outdir / "bench_loop_step_multi.html"
+    loop_png = outdir / "bench_loop_step_multi.png"
+    loop_svg = outdir / "bench_loop_step_multi.svg"
     _write_plot(fig_loop, loop_html, loop_png, loop_svg)
 
     # ---------------------------
-    # Full potential sweep (up to 2e3)
+    # Full potential sweep
     # ---------------------------
-    rng = RNG(args.seed + 1)  # separate RNG stream
+    rng = RNG(args.seed + 1)
     n_full = logspace_ints(_FULL_MIN, _FULL_MAX, _FULL_POINTS)
 
-    full_rows = []
+    full_csv = outdir / "bench_full_potential.csv"
+    full_rows: list[dict] = []
+
+    print("\n=== FULL SWEEP (full potential) ===")
     for N in n_full:
         mols = {proto: N}
         boxN = scale_box(base_box, base_mols, N)
-        forces = make_forces(props, model)
         props = SystemProperties(
             molecules=mols,
             box=boxN,
             temperature=args.temperature,
             periodic=args.periodic,
         )
-        sim = randomized_system(props, model, forces, rng)
 
-        # Warm-up
-        _ = time_full(sim, forces)
-        full_ms = time_full(sim, forces) * 1e-6
+        for key, label, builder, _, _ in force_sets:
+            forces = builder(props, model)
+            sim = randomized_system(props, model, forces, rng)
 
-        full_rows.append(
-            dict(molecules=N, Lx=boxN[0], Ly=boxN[1], Lz=boxN[2], full_ms=full_ms)
-        )
-        print(f"[FULL N={N:6d}] full ≈ {full_ms:9.3f} ms")
+            _ = time_full(sim, forces)  # warm-up
+            full_ms = time_full(sim, forces) * 1e-6
 
-    # Write full CSV
+            full_rows.append(
+                dict(
+                    kind="full",
+                    force_key=key,
+                    force_label=label,
+                    molecules=N,
+                    Lx=float(boxN[0]),
+                    Ly=float(boxN[1]),
+                    Lz=float(boxN[2]),
+                    time_ms=float(full_ms),
+                )
+            )
+            print(f"[{key:>8s} FULL N={N:6d}] full ≈ {full_ms:9.3f} ms")
+
     with open(full_csv, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(full_rows[0].keys()))
         w.writeheader()
         w.writerows(full_rows)
 
-    # Plot full (separate figure, light theme)
-    fig_full = go.Figure()
-    fig_full.add_trace(
-        go.Scatter(
-            x=[r["molecules"] for r in full_rows],
-            y=[r["full_ms"] for r in full_rows],
-            mode="lines+markers",
-            name="Full potential (ms)",
-            line=dict(width=2),
-            marker=dict(size=6),
-        )
+    fig_full = make_subplots(
+        rows=1,
+        cols=2,
+        column_widths=[0.72, 0.28],
+        subplot_titles=("Full potential", "Inset: highest-N"),
+        horizontal_spacing=0.08,
     )
-    # NEW: O(N²) reference anchored at highest-N point
-    _full_Ns = [r["molecules"] for r in full_rows]
-    _full_Ys = [r["full_ms"] for r in full_rows]
-    _add_order_ref_line(fig_full, _full_Ns, _full_Ys, order=2, name="O(N²) ref")
-    _apply_report_style(fig_full, "Benchmark: full potential")
+
+    for key, label, _, _, ref_full_order in force_sets:
+        rows_k = [r for r in full_rows if r["force_key"] == key]
+        Ns = [int(r["molecules"]) for r in rows_k]
+        Ys = [float(r["time_ms"]) for r in rows_k]
+
+        fig_full.add_trace(
+            go.Scatter(
+                x=Ns,
+                y=Ys,
+                mode="lines+markers",
+                name=label,
+                line=dict(width=2),
+                marker=dict(size=6),
+            ),
+            row=1,
+            col=1,
+        )
+        fig_full.add_trace(
+            go.Scatter(
+                x=Ns,
+                y=Ys,
+                mode="lines+markers",
+                name=label,
+                showlegend=False,
+                line=dict(width=2),
+                marker=dict(size=6),
+            ),
+            row=1,
+            col=2,
+        )
+
+        _add_order_ref_line(
+            fig_full,
+            Ns,
+            Ys,
+            order=int(ref_full_order),
+            name=f"{label}: O(N^{ref_full_order}) ref",
+            row=1,
+            col=1,
+        )
+        _add_order_ref_line(
+            fig_full,
+            Ns,
+            Ys,
+            order=int(ref_full_order),
+            name=f"{label}: O(N^{ref_full_order}) ref",
+            row=1,
+            col=2,
+        )
+
+        (x_lo, x_hi), (y_lo, y_hi) = _inset_ranges_from_top(Ns, Ys)
+        fig_full.update_xaxes(range=[np.log10(x_lo), np.log10(x_hi)], row=1, col=2)
+        fig_full.update_yaxes(range=[np.log10(y_lo), np.log10(y_hi)], row=1, col=2)
+
+    _apply_report_style(fig_full, "Benchmark: full potential (multiple force sets)")
+    fig_full.update_xaxes(title_text="Molecules (N)", row=1, col=1)
+    fig_full.update_yaxes(title_text="Time (ms)", row=1, col=1)
+    fig_full.update_xaxes(title_text="N (zoom)", row=1, col=2)
+    fig_full.update_yaxes(title_text="ms (zoom)", row=1, col=2)
+
+    full_html = outdir / "bench_full_potential_multi.html"
+    full_png = outdir / "bench_full_potential_multi.png"
+    full_svg = outdir / "bench_full_potential_multi.svg"
     _write_plot(fig_full, full_html, full_png, full_svg)
 
     print(f"\nLoop CSV: {loop_csv}")
