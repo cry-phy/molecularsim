@@ -1,18 +1,14 @@
 from __future__ import annotations
-from molecsim.data.chargetable import ChargeTable
 from molecsim.data.data import StructureArray
 
 import typing
-
-from molecsim.data.ljtable import LJTable
-from molecsim.data.typeregistry import TypeRegistry
 
 if typing.TYPE_CHECKING:
     from molecsim.data.molecule import Molecule
 
 
 class SystemProperties:
-    """Immutable wrapper for calculating and storing system properties.
+    """Wrapper for calculating and storing system properties.
 
     Stores NVT Parameters:
         N: Number molecules

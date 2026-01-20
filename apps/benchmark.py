@@ -261,14 +261,14 @@ def main():
     for N in n_full:
         mols = {proto: N}
         boxN = scale_box(base_box, base_mols, N)
+        forces = make_forces(props, model)
         props = SystemProperties(
             molecules=mols,
             box=boxN,
             temperature=args.temperature,
             periodic=args.periodic,
         )
-        sim = randomized_system(props, model, rng)
-        forces = make_forces(props, model)
+        sim = randomized_system(props, model, forces, rng)
 
         # Warm-up
         _ = time_full(sim, forces)

@@ -16,6 +16,7 @@ import threading
 import time
 from datetime import datetime
 from typing import Any, Callable, Sequence, Tuple
+from molecsim.data.system import update_system
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
@@ -72,19 +73,16 @@ def build_system(
     box_arr = np.asarray(box, dtype=float)
     temp = float(temperature)
 
-    # NEW: SystemProperties(box, T, periodic, constants=model)
     props = SystemProperties(molecule_list, box_arr, temp, periodic)
 
-    # NEW: randomized_system(props, model, rng)
-    sim = randomized_system(props, model, rng)
-
-    # NEW: make_potcall(fn, props, model)
     forces = SystemPotentials(
         [
             make_potcall(coulomb, props, model),
             make_potcall(lennard_jones, props, model),
         ]
     )
+
+    sim = randomized_system(props, model, forces, rng)
 
     fig, update = plot_system(sim)
     return sim, props, forces, rng, fig, update, model
@@ -105,9 +103,9 @@ def step_once(
         sim, mutation_functions, function_coefficients, rng
     )
 
-    old_contrib = molecule_potential(sim, old_molecule, forces)
-    new_contrib = molecule_potential(sim, new_molecule, forces)
-    diff = new_contrib - old_contrib
+    old_contribution = molecule_potential(sim, old_molecule, forces)
+    new_contribution = molecule_potential(sim, new_molecule, forces)
+    diff = new_contribution.potential - old_contribution.potential
 
     decider = metropolis(sim.properties, sim.model, diff, rng)
 
@@ -116,7 +114,7 @@ def step_once(
     ema_accept[index] = float(np.clip(ema, 0.0, 1.0))
 
     if decider:
-        old_molecule.copy_from(new_molecule)
+        update_system(sim, old_contribution, new_contribution)
         stats["accepted"] += 1
     stats["trials"] += 1
 

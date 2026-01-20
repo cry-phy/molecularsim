@@ -72,3 +72,9 @@ class SystemUpdater:
     def key_for(self, obj: Any, potentials: SystemPotentials) -> str:
         """Get key for object for tracing cached data."""
         return potentials.key_for(obj)
+
+
+def update_system(sim: SimSystem, old: Contribution, new: Contribution):
+    """Update simulation."""
+    sim.updaters.update(sim, old, new)
+    old.molecule.copy_from(new.molecule)

@@ -341,7 +341,7 @@ class Contribution:
         return self._cache
 
     @property
-    def molecule(self) -> Any | None:
+    def molecule(self) -> Any:
         """Optional reference to the molecule/state this contribution corresponds to."""
         return self._molecule
 

@@ -1,4 +1,4 @@
-"""Calculate interaction forces for system of n molecules loaded from data.
+"""Calculate interaction potentials for system of n molecules loaded from data.
 
 Usage example (called from project root):
 
@@ -8,6 +8,7 @@ python src/apps/calculate_between.py -f tests/data/water_zmatrix.com -n 2 -t 10 
 import os
 from pathlib import Path
 import time
+from molecsim.data.system import update_system
 from molecsim.physics.calculations import (
     full_potential,
     molecule_potential,
@@ -45,16 +46,15 @@ if __name__ == "__main__":
         temperature=args.temperature,
         periodic=args.periodic,
     )
-
-    sim = randomized_system(props, model, rng)
-
     coulomb_cont = make_potcall(coulomb, props, model)
     lj_cont = make_potcall(lennard_jones, props, model)
 
-    forces = SystemPotentials([coulomb_cont, lj_cont])
+    potentials = SystemPotentials([coulomb_cont, lj_cont])
 
-    breakdown = potential_breakdown(sim, forces)
-    full = full_potential(sim, forces)
+    sim = randomized_system(props, model, potentials, rng)
+
+    breakdown = potential_breakdown(sim, potentials)
+    full = full_potential(sim, potentials)
 
     print("Successfully calculated potentials:")
     for name, cont in breakdown:
@@ -90,9 +90,9 @@ if __name__ == "__main__":
         )
 
         # compute ΔE
-        old_contribution = molecule_potential(sim, old_molecule, forces)
-        new_contribution = molecule_potential(sim, new_molecule, forces)
-        diff = new_contribution - old_contribution
+        old_contribution = molecule_potential(sim, old_molecule, potentials)
+        new_contribution = molecule_potential(sim, new_molecule, potentials)
+        diff = new_contribution.potential - old_contribution.potential
 
         # accept/reject
         decider = metropolis(sim.properties, sim.model, diff, rng)
@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
         # apply & THEN update the plot
         if decider:
-            old_molecule.copy_from(new_molecule)
+            update_system(sim, old_contribution, new_contribution)
 
         # now visualize the *current* state
         if step % 1000 == 0:

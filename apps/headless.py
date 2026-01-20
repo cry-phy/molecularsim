@@ -21,6 +21,7 @@ from __future__ import annotations
 import pickle
 import time
 
+from molecsim.data.system import update_system
 import numpy as np
 
 from molecsim.physics.calculations import molecule_potential
@@ -55,10 +56,8 @@ def main() -> None:
         periodic=args.periodic,
     )
 
-    sim = randomized_system(props, model, rng)
-
-    # Minimal force field: Coulomb + Lennard-Jones
-    forces = SystemPotentials(
+    # Minimal potential field: Coulomb + Lennard-Jones
+    potentials = SystemPotentials(
         [
             make_potcall(coulomb, props, model),
             make_potcall(lennard_jones, props, model),
@@ -68,6 +67,8 @@ def main() -> None:
     mutation_functions = [mutate_rotate, mutate_translate]
     function_coefficients = [1.0, 1.0]
 
+    sim = randomized_system(props, model, potentials, rng)
+
     start = time.perf_counter_ns()
 
     for _ in range(args.steps):
@@ -75,12 +76,12 @@ def main() -> None:
             sim, mutation_functions, function_coefficients, rng
         )
 
-        old_e = molecule_potential(sim, old_molecule, forces)
-        new_e = molecule_potential(sim, new_molecule, forces)
-        dE = new_e - old_e
+        old_contribution = molecule_potential(sim, old_molecule, potentials)
+        new_contribution = molecule_potential(sim, new_molecule, potentials)
+        dE = new_contribution.potential - old_contribution.potential
 
         if metropolis(sim.properties, sim.model, dE, rng):
-            old_molecule.copy_from(new_molecule)
+            update_system(sim, old_contribution, new_contribution)
 
     end = time.perf_counter_ns()
     dt_ms = (end - start) / 1e6
