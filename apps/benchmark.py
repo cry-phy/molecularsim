@@ -19,11 +19,11 @@ from molecsim.physics.potentials import (
     coulomb_njit,
     coulomb_dense,
     coulomb_gpu,
-    # coulomb_stream,
+    coulomb_stream,
     lennard_jones_njit,
     lennard_jones_dense,
     lennard_jones_gpu,
-    # lennard_jones_stream,
+    lennard_jones_stream,
 )
 from molecsim.physics.mc import metropolis
 from molecsim.utils.models import tip3p
@@ -35,13 +35,14 @@ from molecsim.data.rng import RNG
 # -------------------------------
 # Internal sweep controls (no CLI)
 # -------------------------------
-_LOOP_MIN = 10
-_LOOP_MAX = 50_000
-_LOOP_POINTS = 14  # log-spaced points
+_LOOP_MIN = 1_000_000
+_LOOP_MAX = 1_100_000
+_LOOP_POINTS = 2  # log-spaced points
 
 _FULL_MIN = 10
-_FULL_MAX = 2_000
+_FULL_MAX = 1_000
 _FULL_POINTS = 12  # log-spaced points
+DARK_MODE = True
 
 
 def _add_order_ref_line(
@@ -129,13 +130,13 @@ def make_dense(props: SystemProperties, model) -> SystemPotentials:
     )
 
 
-# def make_stream(props: SystemProperties, model) -> SystemPotentials:
-#     return SystemPotentials(
-#         [
-#             make_potcall(coulomb_stream, props, model),
-#             make_potcall(lennard_jones_stream, props, model),
-#         ]
-#     )
+def make_stream(props: SystemProperties, model) -> SystemPotentials:
+    return SystemPotentials(
+        [
+            make_potcall(coulomb_stream, props, model),
+            make_potcall(lennard_jones_stream, props, model),
+        ]
+    )
 
 
 def make_gpu(props: SystemProperties, model) -> SystemPotentials:
@@ -205,27 +206,49 @@ def time_full(sim, forces) -> int:
 
 
 def _apply_report_style(fig: go.Figure, title: str) -> None:
-    fig.update_layout(
-        template="plotly_white",
-        title=title,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        font=dict(family="DejaVu Sans, Arial, Helvetica, sans-serif", size=14),
-        legend=dict(orientation="h", x=0.0, y=1.10),
-        margin=dict(l=60, r=20, t=70, b=55),
-    )
+    if DARK_MODE:
+        fig.update_layout(
+            template="plotly_dark",
+            title=title,
+            paper_bgcolor="#282a36",  # Dracula-ish
+            plot_bgcolor="#282a36",
+            font=dict(
+                family="DejaVu Sans, Arial, Helvetica, sans-serif",
+                size=14,
+                color="#f8f8f2",
+            ),
+            legend=dict(orientation="h", x=0.0, y=1.10),
+            margin=dict(l=60, r=20, t=70, b=55),
+        )
+        grid = "#44475a"
+    else:
+        fig.update_layout(
+            template="plotly_white",
+            title=title,
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font=dict(
+                family="DejaVu Sans, Arial, Helvetica, sans-serif",
+                size=14,
+                color="black",
+            ),
+            legend=dict(orientation="h", x=0.0, y=1.10),
+            margin=dict(l=60, r=20, t=70, b=55),
+        )
+        grid = "#e6e6e6"
+
     fig.update_xaxes(
         type="log",
         title="Molecules (N)",
         showgrid=True,
-        gridcolor="#e6e6e6",
+        gridcolor=grid,
         zeroline=False,
     )
     fig.update_yaxes(
         type="log",
         title="Time (ms)",
         showgrid=True,
-        gridcolor="#e6e6e6",
+        gridcolor=grid,
         zeroline=False,
     )
 
@@ -252,27 +275,6 @@ def _write_plot(
         )
 
 
-def _inset_ranges_from_top(
-    Ns: list[int],
-    Ys: list[float],
-    *,
-    factor_N: float = 0.10,
-    factor_Y: float = 0.35,
-) -> tuple[tuple[float, float], tuple[float, float]]:
-    """Inset limits focusing on the highest-N region."""
-    if not Ns or not Ys:
-        return ((1.0, 2.0), (1.0, 2.0))
-    Ns_arr = np.asarray(Ns, dtype=float)
-    Ys_arr = np.asarray(Ys, dtype=float)
-    N_max = float(Ns_arr.max())
-    y_max = float(Ys_arr[Ns_arr.argmax()])
-    x_lo = max(float(Ns_arr.min()), N_max * (1.0 - factor_N))
-    x_hi = N_max
-    y_lo = max(float(Ys_arr.min()), y_max * (1.0 - factor_Y))
-    y_hi = max(y_max, float(Ys_arr.max()))
-    return (x_lo, x_hi), (y_lo, y_hi)
-
-
 def main():
     import numba
 
@@ -295,8 +297,8 @@ def main():
     # Each entry: (key, label, builder, ref_order_loop, ref_order_full)
     # ---------------------------------------------------
     force_sets = [
-        # ("gpu", "Coulomb + LJ (gpu)", make_gpu, 1, 2),
-        # ("stream", "Coulomb + LJ (stream)", make_stream, 1, 2),
+        ("gpu", "Coulomb + LJ (gpu)", make_gpu, 1, 2),
+        ("stream", "Coulomb + LJ (stream)", make_stream, 1, 2),
         ("dense", "Coulomb + LJ (dense)", make_dense, 1, 2),
         ("njit", "Coulomb + LJ (njit)", make_njit, 1, 2),
         ("py", "Coulomb + LJ (Python)", make_simple, 1, 2),
@@ -308,7 +310,7 @@ def main():
     rng_pre = RNG(args.seed + 999)
 
     # smallest nontrivial system
-    pre_N = max(2, _LOOP_MIN)
+    pre_N = 100
     mols = {proto: pre_N}
     boxN = scale_box(base_box, base_mols, pre_N)
 
@@ -431,10 +433,6 @@ def main():
             col=2,
         )
 
-        (x_lo, x_hi), (y_lo, y_hi) = _inset_ranges_from_top(Ns, Ys)
-        fig_loop.update_xaxes(range=[np.log10(x_lo), np.log10(x_hi)], row=1, col=2)
-        fig_loop.update_yaxes(range=[np.log10(y_lo), np.log10(y_hi)], row=1, col=2)
-
     _apply_report_style(fig_loop, "Benchmark: MC main-loop step (multiple force sets)")
     fig_loop.update_xaxes(title_text="Molecules (N)", row=1, col=1)
     fig_loop.update_yaxes(title_text="Time (ms)", row=1, col=1)
@@ -494,8 +492,8 @@ def main():
 
     fig_full = make_subplots(
         rows=1,
-        cols=2,
-        column_widths=[0.72, 0.28],
+        cols=1,
+        column_widths=[1],
         subplot_titles=("Full potential", "Inset: highest-N"),
         horizontal_spacing=0.08,
     )
@@ -517,19 +515,6 @@ def main():
             row=1,
             col=1,
         )
-        fig_full.add_trace(
-            go.Scatter(
-                x=Ns,
-                y=Ys,
-                mode="lines+markers",
-                name=label,
-                showlegend=False,
-                line=dict(width=2),
-                marker=dict(size=6),
-            ),
-            row=1,
-            col=2,
-        )
 
         _add_order_ref_line(
             fig_full,
@@ -540,25 +525,10 @@ def main():
             row=1,
             col=1,
         )
-        _add_order_ref_line(
-            fig_full,
-            Ns,
-            Ys,
-            order=int(ref_full_order),
-            name=f"{label}: O(N^{ref_full_order}) ref",
-            row=1,
-            col=2,
-        )
-
-        (x_lo, x_hi), (y_lo, y_hi) = _inset_ranges_from_top(Ns, Ys)
-        fig_full.update_xaxes(range=[np.log10(x_lo), np.log10(x_hi)], row=1, col=2)
-        fig_full.update_yaxes(range=[np.log10(y_lo), np.log10(y_hi)], row=1, col=2)
 
     _apply_report_style(fig_full, "Benchmark: full potential (multiple force sets)")
     fig_full.update_xaxes(title_text="Molecules (N)", row=1, col=1)
     fig_full.update_yaxes(title_text="Time (ms)", row=1, col=1)
-    fig_full.update_xaxes(title_text="N (zoom)", row=1, col=2)
-    fig_full.update_yaxes(title_text="ms (zoom)", row=1, col=2)
 
     full_html = outdir / "bench_full_potential_multi.html"
     full_png = outdir / "bench_full_potential_multi.png"

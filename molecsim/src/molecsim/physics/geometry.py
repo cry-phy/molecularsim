@@ -9,6 +9,14 @@ import numpy as np
 import typing
 from numba import njit, float64, prange, vectorize
 
+# Distance backends live in a separate module to keep this file focused on
+# geometry utilities (wrapping, rigid transforms, masks, special functions, ...).
+from molecsim.physics.distance_calculations import (
+    distance_squares,
+    distance_squares_njit,
+    distance_squares_parallel,
+)
+
 if typing.TYPE_CHECKING:
     from molecsim.data.rng import RNG
 
@@ -262,88 +270,7 @@ def intra_interaction_mask(
     return subset_mask
 
 
-@njit(fastmath=True, parallel=True)
-def _distance_squares_pos_pos(pos_i, pos_j, box, periodic):
-    M = pos_i.shape[0]
-    N = pos_j.shape[0]
-    out = np.empty((M, N), dtype=FLOAT_DTYPE)
-
-    if periodic:
-        bx = box[0]
-        by = box[1]
-        bz = box[2]
-        for i in prange(M):
-            xi = pos_i[i, 0]
-            yi = pos_i[i, 1]
-            zi = pos_i[i, 2]
-            for j in range(N):
-                dx = xi - pos_j[j, 0]
-                dy = yi - pos_j[j, 1]
-                dz = zi - pos_j[j, 2]
-                dx -= bx * np.rint(dx / bx)
-                dy -= by * np.rint(dy / by)
-                dz -= bz * np.rint(dz / bz)
-                out[i, j] = dx * dx + dy * dy + dz * dz
-    else:
-        for i in prange(M):
-            xi = pos_i[i, 0]
-            yi = pos_i[i, 1]
-            zi = pos_i[i, 2]
-            for j in range(N):
-                dx = xi - pos_j[j, 0]
-                dy = yi - pos_j[j, 1]
-                dz = zi - pos_j[j, 2]
-                out[i, j] = dx * dx + dy * dy + dz * dz
-
-    return out
-
-
-def distance_squares_parallel(large_data, small_data, box, periodic):
-    pos_i = np.asarray(large_data.positions, dtype=FLOAT_DTYPE)
-    pos_j = np.asarray(small_data.positions, dtype=FLOAT_DTYPE)
-    box = np.asarray(box, dtype=FLOAT_DTYPE)
-    return _distance_squares_pos_pos(pos_i, pos_j, box, periodic)
-
-
-@njit
-def _distance_squares_njit(
-    large_positions: StructureArray,
-    small_positions: StructureArray,
-    box: npt.NDArray[FloatPrecision],
-    periodic: bool,
-) -> npt.NDArray[FloatPrecision]:
-    dist_vecs = large_positions[:, None, :] - small_positions[None, :, :]
-    if periodic:  # needs MIC
-        dist_vecs -= box * np.round(dist_vecs / box)
-    return np.einsum("mni->mn", dist_vecs**2)
-
-
-def distance_squares_njit(
-    large_data: SystemData,
-    small_data: SystemData,
-    box: npt.NDArray[FloatPrecision],
-    periodic: bool,
-) -> npt.NDArray[FloatPrecision]:
-    """Calculate MxN distance pair matrix with or without MIC based on periodicity."""
-    return _distance_squares_njit(
-        large_data.positions,
-        small_data.positions,
-        box,
-        periodic,
-    )
-
-
-def distance_squares(
-    large_data: SystemData,
-    small_data: SystemData,
-    box: npt.NDArray[FloatPrecision],
-    periodic: bool,
-) -> npt.NDArray[FloatPrecision]:
-    """Calculate MxN distance pair matrix with or without MIC based on periodicity."""
-    dist_vecs = large_data.positions[:, None, :] - small_data.positions[None, :, :]
-    if periodic:  # needs MIC
-        dist_vecs -= box * np.round(dist_vecs / box)
-    return np.einsum("mni->mn", dist_vecs**2)
+### distance_squares / distance_squares_njit / distance_squares_parallel are imported above
 
 
 @vectorize(["float64(float64)", "float32(float32)"], fastmath=True)

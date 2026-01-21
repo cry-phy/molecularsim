@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 from molecsim.data.system import SimSystem
-from molecsim.physics.potentials.coulomb_pot import coulomb
+from molecsim.physics.potentials.classic import coulomb
 
 
 def _compute_reciprocals(

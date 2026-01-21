@@ -63,6 +63,7 @@ if __name__ == "__main__":
 
     fig, update = plot_system(sim)
     fig.show()
+    fig.write_html("plot.html")
     # in case update is desired (only works in notebooks and streamlit apps!):
     fig = update(sim)
 
