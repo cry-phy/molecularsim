@@ -1,189 +1,66 @@
 from __future__ import annotations
 
-import math
-from typing import Optional, Tuple
+from math import sqrt, exp, floor
+from typing import Any
 
 import numpy as np
 
 from molecsim.data.contributors import Contribution
-from molecsim.data.data import SystemData, FLOAT_DTYPE
+from molecsim.data.data import FLOAT_DTYPE, SystemData
 from molecsim.data.model import ModelConstants
 from molecsim.data.properties import SystemProperties
+from molecsim.physics.geometry import erfc
+
+# ----------------------------
+# CUDA availability
+# ----------------------------
+
+try:
+    from numba import cuda  # type: ignore
+except Exception:
+    cuda = None
 
 
-# ======================================================================================
-# Robust CUDA availability probe
-# - Importing numba.cuda can succeed even if NVVM isn't present.
-# - We only enable the GPU path if we can load NVVM and compile/launch a tiny kernel.
-# ======================================================================================
+class CudaUnavailableError(RuntimeError):
+    pass
 
 
-def _probe_numba_cuda():
-    try:
-        from numba import cuda  # type: ignore
-    except Exception as e:
-        return None, f"numba.cuda import failed: {e!r}"
-
-    try:
-        if not cuda.is_available():
-            return None, "CUDA driver not available (cuda.is_available() is False)"
-
-        # Force NVVM load now (your traceback fails here if libnvvm.so is missing)
-        from numba.cuda.cudadrv import nvvm  # type: ignore
-
-        _ = nvvm.NVVM()
-
-        # Smoke-compile + launch to ensure toolchain works
-        @cuda.jit
-        def _smoke(a):
-            i = cuda.grid(1)
-            if i < a.size:
-                a[i] += 1
-
-        d = cuda.device_array(1, dtype=np.int32)
-        _smoke[1, 1](d)
-        cuda.synchronize()
-
-        return cuda, None
-    except Exception as e:
-        return None, f"CUDA present but unusable (NVVM/toolchain issue): {e!r}"
-
-
-cuda, CUDA_ERROR = _probe_numba_cuda()
-
-# Fixed threads-per-block for shared-memory reductions
-TPB = 256
-
-
-# ======================================================================================
-# Utilities: host array handling + optional device buffer reuse
-# ======================================================================================
-
-
-def _as_f64_contig(x: np.ndarray) -> np.ndarray:
-    a = np.asarray(x, dtype=np.float64)
-    return np.ascontiguousarray(a)
-
-
-def _as_i32_contig(x: np.ndarray) -> np.ndarray:
-    a = np.asarray(x, dtype=np.int32)
-    return np.ascontiguousarray(a)
-
-
-def _pos_to_flat_f64(pos: np.ndarray) -> np.ndarray:
-    """
-    Accepts either (N,3) or flat (3N,) and returns flat (3N,) float64 contiguous.
-    """
-    a = _as_f64_contig(pos)
-    if a.ndim == 2:
-        if a.shape[1] != 3:
-            raise ValueError(f"positions must be (N,3) or flat (3N,), got {a.shape}")
-        a = a.reshape(-1)
-    elif a.ndim == 1:
-        if a.size % 3 != 0:
-            raise ValueError(
-                f"flat positions must have length multiple of 3, got {a.size}"
-            )
-    else:
-        raise ValueError(f"positions must be (N,3) or flat (3N,), got ndim={a.ndim}")
-    return np.ascontiguousarray(a)
-
-
-class _GpuWorkspace:
-    """
-    Reuse device allocations to avoid cuda.to_device() allocating every call.
-    Copies are still performed, but allocations are cached by size.
-    """
-
-    def __init__(self, cuda_mod):
-        self.cuda = cuda_mod
-
-        self.d_data_pos = None
-        self.d_data_q = None
-        self.d_data_types = None
-
-        self.d_mol_pos = None
-        self.d_mol_q = None
-        self.d_mol_types = None
-
-        self.d_lj_table = None
-        self._lj_table_shape = None
-        self._lj_table_fingerprint = None  # simple "changed?" marker
-
-        self.d_partials = None
-        self._partials_len = 0
-
-        self.d_one = None  # single-element float64 array
-
-    def _ensure_1d(self, d_arr, length: int, dtype) -> "cuda.devicearray.DeviceNDArray":
-        if d_arr is None or d_arr.size != length or d_arr.dtype != np.dtype(dtype):
-            d_arr = self.cuda.device_array(length, dtype=dtype)
-        return d_arr
-
-    def ensure_coulomb(self, M: int, N: int, blocks: int):
-        self.d_data_pos = self._ensure_1d(self.d_data_pos, 3 * M, np.float64)
-        self.d_data_q = self._ensure_1d(self.d_data_q, M, np.float64)
-        self.d_mol_pos = self._ensure_1d(self.d_mol_pos, 3 * N, np.float64)
-        self.d_mol_q = self._ensure_1d(self.d_mol_q, N, np.float64)
-
-        if self.d_partials is None or self._partials_len != blocks:
-            self.d_partials = self.cuda.device_array(blocks, dtype=np.float64)
-            self._partials_len = blocks
-
-        if self.d_one is None:
-            self.d_one = self.cuda.device_array(1, dtype=np.float64)
-
-    def ensure_lj(self, M: int, N: int, blocks: int, table: np.ndarray):
-        self.d_data_pos = self._ensure_1d(self.d_data_pos, 3 * M, np.float64)
-        self.d_mol_pos = self._ensure_1d(self.d_mol_pos, 3 * N, np.float64)
-
-        self.d_data_types = self._ensure_1d(self.d_data_types, M, np.int32)
-        self.d_mol_types = self._ensure_1d(self.d_mol_types, N, np.int32)
-
-        # LJ table caching: copy only if changed
-        tbl = _as_f64_contig(table)
-        fingerprint = (
-            tbl.shape,
-            tbl.dtype.str,
-            float(tbl.sum()),
-            float(tbl.ravel()[0]) if tbl.size else 0.0,
-        )
-        if self.d_lj_table is None or self._lj_table_fingerprint != fingerprint:
-            self.d_lj_table = self.cuda.to_device(tbl)
-            self._lj_table_shape = tbl.shape
-            self._lj_table_fingerprint = fingerprint
-
-        if self.d_partials is None or self._partials_len != blocks:
-            self.d_partials = self.cuda.device_array(blocks, dtype=np.float64)
-            self._partials_len = blocks
-
-        if self.d_one is None:
-            self.d_one = self.cuda.device_array(1, dtype=np.float64)
-
-
-_WORKSPACE: Optional[_GpuWorkspace] = None
-
-
-def _ws() -> _GpuWorkspace:
-    global _WORKSPACE
+def _require_cuda():
     if cuda is None:
-        raise RuntimeError(f"CUDA unavailable: {CUDA_ERROR}")
-    if _WORKSPACE is None:
-        _WORKSPACE = _GpuWorkspace(cuda)
-    return _WORKSPACE
+        raise CudaUnavailableError("CUDA not available (numba.cuda import failed).")
+    try:
+        cuda.current_context()
+    except Exception as e:
+        raise CudaUnavailableError(f"CUDA present but unusable: {e!r}") from e
+    return cuda
 
 
-# ======================================================================================
-# GPU kernels / device helpers
-# ======================================================================================
+# ----------------------------
+# Small device helpers
+# ----------------------------
 
 if cuda is not None:
-    # A simple reduction helper; returns a Python scalar on the host
-    sum_reduce = cuda.reduce(lambda a, b: a + b)
+
+    @cuda.jit(device=True, inline=True)
+    def _rint(x: float) -> float:
+        """Round-to-nearest integer as float (ties not important here)."""
+        if x >= 0.0:
+            return floor(x + 0.5)
+        else:
+            return -floor(-x + 0.5)
+
+    @cuda.jit(device=True, inline=True)
+    def _mic(dx: float, box: float) -> float:
+        """Minimum image convention for one component."""
+        # dx -= box * round(dx/box)
+        return dx - box * _rint(dx / box)
 
     @cuda.jit(device=True, inline=True)
     def _erfc_approx(x: float) -> float:
-        # Abramowitz-Stegun erf approximation, erfc = 1 - erf
+        """
+        Fast-ish erfc approximation (Abramowitz-Stegun style via erf approx).
+        Good enough for real-space damping; validate if you care about precision.
+        """
         a1 = 0.254829592
         a2 = -0.284496736
         a3 = 1.421413741
@@ -197,82 +74,174 @@ if cuda is not None:
             x = -x
 
         t = 1.0 / (1.0 + p * x)
-        y = 1.0 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) * math.exp(
-            -x * x
-        )
+        y = 1.0 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) * exp(-x * x)
         erf = sign * y
         return 1.0 - erf
 
-    @cuda.jit(device=True, inline=True)
-    def _nint(x: float) -> float:
-        # nearest integer as float
-        if x >= 0.0:
-            return math.floor(x + 0.5)
-        else:
-            return -math.floor(-x + 0.5)
 
-    @cuda.jit(device=True, inline=True)
-    def _mic(dx: float, box: float, inv_box: float) -> float:
-        # dx -= box * round(dx/box)
-        return dx - box * _nint(dx * inv_box)
+# ----------------------------
+# Module-level device buffer caches
+# ----------------------------
 
-    # ----------------------------
-    # Coulomb kernels (flat positions)
-    # ----------------------------
+# Keyed by (device_id, K)
+_MOL_CACHE: dict[tuple[int, int], tuple[Any, Any, Any, Any, Any]] = {}
 
-    @cuda.jit(fastmath=True)
-    def _coulomb_extra_flat_kernel(
-        data_pos,  # (3*M,) float64
-        data_q,  # (M,)  float64
-        mol_pos,  # (3*N,) float64
-        mol_q,  # (N,)  float64
-        box0,
-        box1,
-        box2,
-        inv_box0,
-        inv_box1,
-        inv_box2,
-        periodic,  # int32 0/1
-        coulomb_coeff,  # float64
-        cutoff,  # float64
-        out_partial,  # (blocks,) float64
+# Keyed by (device_id, blocks)
+_PARTIALS_CACHE: dict[tuple[int, int], Any] = {}
+
+# Keyed by (device_id, shape, dtype_str)
+_LJ_TABLE_CACHE: dict[tuple[int, tuple[int, int, int], str], Any] = {}
+
+
+def _device_id() -> int:
+    cu = _require_cuda()
+    dev = cu.get_current_device()
+
+    # Preferred: real numeric id (if provided by this Numba build)
+    did = getattr(dev, "id", None)
+    if did is not None:
+        return int(did)
+
+    # Fallback 1: stable enough inside this process
+    return int(id(dev))
+
+
+def _get_mol_buffers(K: int):
+    """Get (or allocate) device buffers for molecule SoA + q + types."""
+    cu = _require_cuda()
+    did = _device_id()
+    key = (did, int(K))
+    buf = _MOL_CACHE.get(key)
+    if buf is not None:
+        return buf
+
+    d_mx = cu.device_array(K, dtype=np.float32)
+    d_my = cu.device_array(K, dtype=np.float32)
+    d_mz = cu.device_array(K, dtype=np.float32)
+    d_mq = cu.device_array(K, dtype=np.float32)
+    d_mt = cu.device_array(K, dtype=np.int32)
+
+    _MOL_CACHE[key] = (d_mx, d_my, d_mz, d_mq, d_mt)
+    return _MOL_CACHE[key]
+
+
+def _get_partials(blocks: int):
+    """Get (or allocate) per-block partial sums (float64)."""
+    cu = _require_cuda()
+    did = _device_id()
+    key = (did, int(blocks))
+    buf = _PARTIALS_CACHE.get(key)
+    if buf is not None:
+        return buf
+    d_partials = cu.device_array((blocks,), dtype=np.float64)
+    _PARTIALS_CACHE[key] = d_partials
+    return d_partials
+
+
+def _get_lj_table_device(model: ModelConstants):
+    """Upload LJ table once per device."""
+    cu = _require_cuda()
+    did = _device_id()
+
+    table = np.asarray(model.ljtable.table)  # expected shape (T,T,2)
+    if table.ndim != 3 or table.shape[2] != 2:
+        raise ValueError(
+            f"Expected ljtable.table with shape (T,T,2), got {table.shape}"
+        )
+
+    key = (did, tuple(int(x) for x in table.shape), "f32")
+    d_tab = _LJ_TABLE_CACHE.get(key)
+    if d_tab is not None:
+        return d_tab
+
+    h_tab = np.ascontiguousarray(table, dtype=np.float32)
+    d_tab = cu.to_device(h_tab)
+    _LJ_TABLE_CACHE[key] = d_tab
+    return d_tab
+
+
+# ----------------------------
+# Kernels: Extra interactions (mol vs rest of system)
+# ----------------------------
+
+if cuda is not None:
+
+    @cuda.jit
+    def _coulomb_extra_soa(
+        x,
+        y,
+        z,
+        q,  # system SoA (float32)
+        n_system: int,
+        mx,
+        my,
+        mz,
+        mq,  # molecule SoA (float32)
+        k_mol: int,
+        m_start: int,
+        m_stop: int,
+        box0: float,
+        box1: float,
+        box2: float,
+        periodic: int,
+        alpha: float,
+        cut2: float,
+        coulomb_coeff: float,
+        out_partials,  # float64[blocks]
     ):
-        i = cuda.grid(1)
-        M = data_q.size
-        N = mol_q.size
-
+        """
+        One thread per system atom j.
+        Accumulates sum_m qj*qm*erfc(alpha*r)/r over molecule atoms m.
+        Skips j in [m_start,m_stop) to avoid counting intra/self as "extra".
+        Writes per-block partial sum to out_partials[blockIdx.x].
+        """
         tid = cuda.threadIdx.x
-        smem = cuda.shared.array(TPB, dtype=np.float64)
+        bid = cuda.blockIdx.x
+        bdim = cuda.blockDim.x
+        j0 = bid * bdim + tid
+
+        smem = cuda.shared.array(256, dtype=np.float64)  # threads must be <= 256
 
         acc = 0.0
-        if i < M:
-            xi = data_pos[3 * i + 0]
-            yi = data_pos[3 * i + 1]
-            zi = data_pos[3 * i + 2]
-            qi = data_q[i]
+        if j0 < n_system:
+            # exclude molecule slice if valid
+            if m_start >= 0 and (m_start <= j0 < m_stop):
+                acc = 0.0
+            else:
+                xj = x[j0]
+                yj = y[j0]
+                zj = z[j0]
+                qj = q[j0]
 
-            for j in range(N):
-                dx = xi - mol_pos[3 * j + 0]
-                dy = yi - mol_pos[3 * j + 1]
-                dz = zi - mol_pos[3 * j + 2]
+                # Loop over molecule atoms (small K)
+                for m in range(k_mol):
+                    dx = xj - mx[m]
+                    dy = yj - my[m]
+                    dz = zj - mz[m]
 
-                if periodic != 0:
-                    dx = _mic(dx, box0, inv_box0)
-                    dy = _mic(dy, box1, inv_box1)
-                    dz = _mic(dz, box2, inv_box2)
+                    if periodic != 0:
+                        dx = _mic(dx, box0)
+                        dy = _mic(dy, box1)
+                        dz = _mic(dz, box2)
 
-                r2 = dx * dx + dy * dy + dz * dz
-                if r2 > 0.0:
-                    r = math.sqrt(r2)
-                    # keep your CPU behavior: erfc(r - cutoff) / r
-                    acc += (qi * mol_q[j]) * (_erfc_approx(r - cutoff) / r)
+                    r2 = dx * dx + dy * dy + dz * dz
+                    if r2 <= 1e-20:
+                        continue
+                    if cut2 > 0.0 and r2 > cut2:
+                        continue
 
-            acc *= coulomb_coeff
+                    r = sqrt(r2)
+                    inv_r = 1.0 / r
+                    damp = _erfc_approx(alpha * r)
+                    acc += (qj * mq[m]) * damp * inv_r
 
-        smem[tid] = acc
+                acc *= coulomb_coeff
+
+        smem[tid] = float(acc)
         cuda.syncthreads()
 
-        stride = cuda.blockDim.x // 2
+        # reduction in shared
+        stride = bdim // 2
         while stride > 0:
             if tid < stride:
                 smem[tid] += smem[tid + stride]
@@ -280,110 +249,79 @@ if cuda is not None:
             stride //= 2
 
         if tid == 0:
-            out_partial[cuda.blockIdx.x] = smem[0]
+            out_partials[bid] = smem[0]
 
-    @cuda.jit(fastmath=True)
-    def _coulomb_intra_flat_kernel(
-        mol_pos,
-        mol_q,
-        box0,
-        box1,
-        box2,
-        inv_box0,
-        inv_box1,
-        inv_box2,
-        periodic,
-        coulomb_coeff,
-        cutoff,
-        out_one,  # (1,)
+    @cuda.jit
+    def _lj_extra_soa(
+        x,
+        y,
+        z,
+        t,  # system SoA + types (float32 + int32)
+        n_system: int,
+        mx,
+        my,
+        mz,
+        mt,  # molecule SoA + types
+        k_mol: int,
+        m_start: int,
+        m_stop: int,
+        box0: float,
+        box1: float,
+        box2: float,
+        periodic: int,
+        cut2: float,
+        lj_table,  # float32 (T,T,2)
+        out_partials,  # float64[blocks]
     ):
-        # Simple: one thread computes intra (molecules are small in MC workflows)
-        if cuda.blockIdx.x != 0 or cuda.threadIdx.x != 0:
-            return
-
-        N = mol_q.size
-        acc = 0.0
-        for i in range(N):
-            xi = mol_pos[3 * i + 0]
-            yi = mol_pos[3 * i + 1]
-            zi = mol_pos[3 * i + 2]
-            qi = mol_q[i]
-            for j in range(i + 1, N):
-                dx = xi - mol_pos[3 * j + 0]
-                dy = yi - mol_pos[3 * j + 1]
-                dz = zi - mol_pos[3 * j + 2]
-
-                if periodic != 0:
-                    dx = _mic(dx, box0, inv_box0)
-                    dy = _mic(dy, box1, inv_box1)
-                    dz = _mic(dz, box2, inv_box2)
-
-                r2 = dx * dx + dy * dy + dz * dz
-                if r2 > 0.0:
-                    r = math.sqrt(r2)
-                    acc += (qi * mol_q[j]) * (_erfc_approx(r - cutoff) / r)
-
-        out_one[0] = coulomb_coeff * acc
-
-    # ----------------------------
-    # Lennard-Jones kernels (flat positions)
-    # table: (T,T,2) float64, where table[ti,tj,0]=Aij and [ti,tj,1]=Bij
-    # ----------------------------
-
-    @cuda.jit(fastmath=True)
-    def _lj_extra_flat_kernel(
-        data_pos,
-        data_types,  # data_pos: (3*M,), data_types: (M,)
-        mol_pos,
-        mol_types,  # mol_pos:  (3*N,), mol_types:  (N,)
-        table,  # (T,T,2)
-        box0,
-        box1,
-        box2,
-        inv_box0,
-        inv_box1,
-        inv_box2,
-        periodic,
-        out_partial,
-    ):
-        i = cuda.grid(1)
-        M = data_types.size
-        N = mol_types.size
-
+        """
+        One thread per system atom j.
+        Accumulates sum_m (A/r^12 - B/r^6) over molecule atoms m.
+        """
         tid = cuda.threadIdx.x
-        smem = cuda.shared.array(TPB, dtype=np.float64)
+        bid = cuda.blockIdx.x
+        bdim = cuda.blockDim.x
+        j0 = bid * bdim + tid
+
+        smem = cuda.shared.array(256, dtype=np.float64)
 
         acc = 0.0
-        if i < M:
-            xi = data_pos[3 * i + 0]
-            yi = data_pos[3 * i + 1]
-            zi = data_pos[3 * i + 2]
-            ti = data_types[i]
+        if j0 < n_system:
+            if m_start >= 0 and (m_start <= j0 < m_stop):
+                acc = 0.0
+            else:
+                xj = x[j0]
+                yj = y[j0]
+                zj = z[j0]
+                tj = t[j0]
 
-            for j in range(N):
-                dx = xi - mol_pos[3 * j + 0]
-                dy = yi - mol_pos[3 * j + 1]
-                dz = zi - mol_pos[3 * j + 2]
+                for m in range(k_mol):
+                    dx = xj - mx[m]
+                    dy = yj - my[m]
+                    dz = zj - mz[m]
 
-                if periodic != 0:
-                    dx = _mic(dx, box0, inv_box0)
-                    dy = _mic(dy, box1, inv_box1)
-                    dz = _mic(dz, box2, inv_box2)
+                    if periodic != 0:
+                        dx = _mic(dx, box0)
+                        dy = _mic(dy, box1)
+                        dz = _mic(dz, box2)
 
-                r2 = dx * dx + dy * dy + dz * dz
-                if r2 > 0.0:
-                    tj = mol_types[j]
-                    Aij = table[ti, tj, 0]
-                    Bij = table[ti, tj, 1]
+                    r2 = dx * dx + dy * dy + dz * dz
+                    if r2 <= 1e-20:
+                        continue
+                    if cut2 > 0.0 and r2 > cut2:
+                        continue
+
+                    tm = mt[m]
+                    A = lj_table[tj, tm, 0]
+                    B = lj_table[tj, tm, 1]
 
                     r6 = r2 * r2 * r2
                     r12 = r6 * r6
-                    acc += (Aij / r12) - (Bij / r6)
+                    acc += (A / r12) - (B / r6)
 
-        smem[tid] = acc
+        smem[tid] = float(acc)
         cuda.syncthreads()
 
-        stride = cuda.blockDim.x // 2
+        stride = bdim // 2
         while stride > 0:
             if tid < stride:
                 smem[tid] += smem[tid + stride]
@@ -391,57 +329,179 @@ if cuda is not None:
             stride //= 2
 
         if tid == 0:
-            out_partial[cuda.blockIdx.x] = smem[0]
+            out_partials[bid] = smem[0]
 
-    @cuda.jit(fastmath=True)
-    def _lj_intra_flat_kernel(
-        mol_pos,
-        mol_types,
-        table,
-        box0,
-        box1,
-        box2,
-        inv_box0,
-        inv_box1,
-        inv_box2,
-        periodic,
-        out_one,
+    @cuda.jit
+    def _coulomb_lj_extra_soa(
+        x,
+        y,
+        z,
+        q,
+        t,
+        n_system: int,
+        mx,
+        my,
+        mz,
+        mq,
+        mt,
+        k_mol: int,
+        m_start: int,
+        m_stop: int,
+        box0: float,
+        box1: float,
+        box2: float,
+        periodic: int,
+        alpha: float,
+        cut2: float,
+        coulomb_coeff: float,
+        lj_table,
+        out_partials,  # float64
     ):
-        if cuda.blockIdx.x != 0 or cuda.threadIdx.x != 0:
-            return
+        """Fused Coulomb + LJ in one pass over system atoms."""
+        tid = cuda.threadIdx.x
+        bid = cuda.blockIdx.x
+        bdim = cuda.blockDim.x
+        j0 = bid * bdim + tid
 
-        N = mol_types.size
+        smem = cuda.shared.array(256, dtype=np.float64)
+
         acc = 0.0
-        for i in range(N):
-            xi = mol_pos[3 * i + 0]
-            yi = mol_pos[3 * i + 1]
-            zi = mol_pos[3 * i + 2]
-            ti = mol_types[i]
-            for j in range(i + 1, N):
-                dx = xi - mol_pos[3 * j + 0]
-                dy = yi - mol_pos[3 * j + 1]
-                dz = zi - mol_pos[3 * j + 2]
+        if j0 < n_system:
+            if m_start >= 0 and (m_start <= j0 < m_stop):
+                acc = 0.0
+            else:
+                xj = x[j0]
+                yj = y[j0]
+                zj = z[j0]
+                qj = q[j0]
+                tj = t[j0]
 
-                if periodic != 0:
-                    dx = _mic(dx, box0, inv_box0)
-                    dy = _mic(dy, box1, inv_box1)
-                    dz = _mic(dz, box2, inv_box2)
+                for m in range(k_mol):
+                    dx = xj - mx[m]
+                    dy = yj - my[m]
+                    dz = zj - mz[m]
 
-                r2 = dx * dx + dy * dy + dz * dz
-                if r2 > 0.0:
-                    tj = mol_types[j]
-                    Aij = table[ti, tj, 0]
-                    Bij = table[ti, tj, 1]
+                    if periodic != 0:
+                        dx = _mic(dx, box0)
+                        dy = _mic(dy, box1)
+                        dz = _mic(dz, box2)
+
+                    r2 = dx * dx + dy * dy + dz * dz
+                    if r2 <= 1e-20:
+                        continue
+                    if cut2 > 0.0 and r2 > cut2:
+                        continue
+
+                    r = sqrt(r2)
+                    inv_r = 1.0 / r
+                    damp = _erfc_approx(alpha * r)
+                    acc += (qj * mq[m]) * damp * inv_r * coulomb_coeff
+
+                    tm = mt[m]
+                    A = lj_table[tj, tm, 0]
+                    B = lj_table[tj, tm, 1]
                     r6 = r2 * r2 * r2
                     r12 = r6 * r6
-                    acc += (Aij / r12) - (Bij / r6)
+                    acc += (A / r12) - (B / r6)
 
-        out_one[0] = acc
+        smem[tid] = float(acc)
+        cuda.syncthreads()
+
+        stride = bdim // 2
+        while stride > 0:
+            if tid < stride:
+                smem[tid] += smem[tid + stride]
+            cuda.syncthreads()
+            stride //= 2
+
+        if tid == 0:
+            out_partials[bid] = smem[0]
 
 
-# ======================================================================================
-# Public API (same signatures as your CPU potentials)
-# ======================================================================================
+# ----------------------------
+# CPU intra helpers (K is small; keep it simple)
+# ----------------------------
+
+
+def _ewald_alpha(cutoff: float, tol: float) -> float:
+    # Rough but effective: choose alpha so exp(-(alpha*cut)^2) ~ tol
+    # (erfc has similar tail scale). Avoid tol<=0.
+    tol = max(float(tol), 1e-30)
+    return float(np.sqrt(-np.log(tol)) / float(cutoff))
+
+
+def _mic_cpu(d: float, box: float) -> float:
+    return d - box * np.rint(d / box)
+
+
+def _coulomb_intra_cpu(
+    mol_pos: np.ndarray,
+    mol_q: np.ndarray,
+    box: np.ndarray,
+    periodic: bool,
+    cutoff: float,
+    alpha: float,
+    coulomb_coeff: float,
+) -> float:
+    K = mol_pos.shape[0]
+    cut2 = cutoff * cutoff
+    acc = 0.0
+    for i in range(K):
+        xi, yi, zi = mol_pos[i]
+        qi = mol_q[i]
+        for j in range(i + 1, K):
+            dx = xi - mol_pos[j, 0]
+            dy = yi - mol_pos[j, 1]
+            dz = zi - mol_pos[j, 2]
+            if periodic:
+                dx = _mic_cpu(dx, box[0])
+                dy = _mic_cpu(dy, box[1])
+                dz = _mic_cpu(dz, box[2])
+            r2 = dx * dx + dy * dy + dz * dz
+            if r2 <= 1e-30 or r2 > cut2:
+                continue
+            r = float(np.sqrt(r2))
+            acc += (qi * mol_q[j]) * float(erfc(alpha * r)) / r
+    return coulomb_coeff * acc
+
+
+def _lj_intra_cpu(
+    mol_pos: np.ndarray,
+    mol_t: np.ndarray,
+    lj_table: np.ndarray,
+    box: np.ndarray,
+    periodic: bool,
+    cutoff: float,
+) -> float:
+    K = mol_pos.shape[0]
+    cut2 = cutoff * cutoff
+    acc = 0.0
+    for i in range(K):
+        xi, yi, zi = mol_pos[i]
+        ti = int(mol_t[i])
+        for j in range(i + 1, K):
+            dx = xi - mol_pos[j, 0]
+            dy = yi - mol_pos[j, 1]
+            dz = zi - mol_pos[j, 2]
+            if periodic:
+                dx = _mic_cpu(dx, box[0])
+                dy = _mic_cpu(dy, box[1])
+                dz = _mic_cpu(dz, box[2])
+            r2 = dx * dx + dy * dy + dz * dz
+            if r2 <= 1e-30 or r2 > cut2:
+                continue
+            tj = int(mol_t[j])
+            A = float(lj_table[ti, tj, 0])
+            B = float(lj_table[ti, tj, 1])
+            r6 = r2 * r2 * r2
+            r12 = r6 * r6
+            acc += (A / r12) - (B / r6)
+    return acc
+
+
+# ----------------------------
+# Public potential functions
+# ----------------------------
 
 
 def coulomb_gpu(
@@ -452,100 +512,92 @@ def coulomb_gpu(
     *,
     contribution: Contribution | None = None,
 ) -> float:
-    """
-    CUDA Coulomb implementation.
-    Notes:
-    - This computes a rectangular "data x molecule" interaction plus intra(molecule).
-    - For correctness you usually want `data` to be the system *excluding* the molecule,
-      otherwise you will include molecule-vs-itself terms in the "extra" part.
-    - If CUDA/NVVM isn't available, this raises with a helpful error message (so you can skip it).
-    """
-    if cuda is None:
+    cu = _require_cuda()
+
+    # Ensure resident system buffers exist (your new data.py mirror should provide this).
+    if hasattr(data, "enable_gpu"):
+        data.enable_gpu(cuda=cu, pos_dtype=np.float32, q_dtype=np.float32, upload=True)
+
+    if not hasattr(data, "device_view"):
         raise RuntimeError(
-            "CUDA backend is unavailable.\n"
-            f"Reason: {CUDA_ERROR}\n\n"
-            "Typical fixes:\n"
-            "- Install a CUDA toolkit that provides libnvvm.so\n"
-            "- Ensure libnvvm.so is on your loader path (e.g. /opt/cuda/nvvm/lib64 on Arch)\n"
-            "- Or run this force-set without the GPU backend."
+            "SystemData has no device_view(); install the GPU mirror in data.py first."
         )
 
-    if len(molecule_data) > len(data):
-        raise ValueError(
-            f"Data must be larger or equal to molecule_data: data {len(data)}, molecule_data: {len(molecule_data)}"
-        )
+    d_x, d_y, d_z, d_q, d_t, sys_start, sys_size, *_ = data.device_view(cuda=cu)
+    N = int(sys_size)
+    if sys_start != 0:
+        # We expect the system passed here to be the owner; if not, still handle it.
+        # Kernels treat indices [0..N) relative to the passed arrays.
+        pass
 
-    # Host arrays -> flat float64
-    data_pos = _pos_to_flat_f64(data.positions)
-    mol_pos = _pos_to_flat_f64(molecule_data.positions)
-    data_q = _as_f64_contig(data.charges).reshape(-1)
-    mol_q = _as_f64_contig(molecule_data.charges).reshape(-1)
+    # Molecule slice in owner coordinates (for self-exclusion)
+    m_start, m_stop = molecule_data.data_interval()
+    m_start = int(m_start)
+    m_stop = int(m_stop)
+    if not (0 <= m_start <= m_stop <= N):
+        m_start = -1
+        m_stop = -1
 
-    M = data_q.size
-    N = mol_q.size
-    if data_pos.size != 3 * M:
-        raise ValueError("data.positions and data.charges size mismatch")
-    if mol_pos.size != 3 * N:
-        raise ValueError(
-            "molecule_data.positions and molecule_data.charges size mismatch"
-        )
+    # Upload molecule (K is small)
+    mol_pos64 = np.asarray(molecule_data.positions, dtype=np.float64)
+    mol_q64 = np.asarray(molecule_data.charges, dtype=np.float64)
+    K = int(mol_q64.shape[0])
+    d_mx, d_my, d_mz, d_mq, d_mt = _get_mol_buffers(K)
 
-    threads = TPB
-    blocks = (M + threads - 1) // threads
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 0], dtype=np.float32), to=d_mx)
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 1], dtype=np.float32), to=d_my)
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 2], dtype=np.float32), to=d_mz)
+    cu.to_device(np.ascontiguousarray(mol_q64, dtype=np.float32), to=d_mq)
+    cu.to_device(np.ascontiguousarray(molecule_data.atoms, dtype=np.int32), to=d_mt)
 
-    ws = _ws()
-    ws.ensure_coulomb(M=M, N=N, blocks=blocks)
-
-    # Copy into existing device buffers
-    ws.d_data_pos.copy_to_device(data_pos)
-    ws.d_data_q.copy_to_device(data_q)
-    ws.d_mol_pos.copy_to_device(mol_pos)
-    ws.d_mol_q.copy_to_device(mol_q)
-
-    box = _as_f64_contig(props.box).reshape(-1)
-    if box.size != 3:
-        raise ValueError("props.box must be length 3")
-
-    box0, box1, box2 = float(box[0]), float(box[1]), float(box[2])
-    inv0, inv1, inv2 = 1.0 / box0, 1.0 / box1, 1.0 / box2
+    # Scalars
+    box = np.asarray(props.box, dtype=np.float32).reshape(3)
     periodic = np.int32(1 if props.periodic else 0)
+    cutoff = float(model.cutoff)
+    cut2 = np.float32(cutoff * cutoff)
+    alpha = np.float32(_ewald_alpha(cutoff, float(model.tolerance)))
+    coulomb_coeff = np.float32(float(model.coulomb_coeff))
 
-    _coulomb_extra_flat_kernel[blocks, threads](
-        ws.d_data_pos,
-        ws.d_data_q,
-        ws.d_mol_pos,
-        ws.d_mol_q,
-        box0,
-        box1,
-        box2,
-        inv0,
-        inv1,
-        inv2,
+    # Launch config
+    threads = 256
+    blocks = (N + threads - 1) // threads
+    d_partials = _get_partials(blocks)
+
+    _coulomb_extra_soa[blocks, threads](
+        d_x,
+        d_y,
+        d_z,
+        d_q,
+        N,
+        d_mx,
+        d_my,
+        d_mz,
+        d_mq,
+        K,
+        m_start,
+        m_stop,
+        box[0],
+        box[1],
+        box[2],
         periodic,
-        float(model.coulomb_coeff),
-        float(model.cutoff),
-        ws.d_partials,
+        alpha,
+        cut2,
+        coulomb_coeff,
+        d_partials,
     )
 
-    # Intra (cheap, molecule is small)
-    _coulomb_intra_flat_kernel[1, 1](
-        ws.d_mol_pos,
-        ws.d_mol_q,
-        box0,
-        box1,
-        box2,
-        inv0,
-        inv1,
-        inv2,
-        periodic,
-        float(model.coulomb_coeff),
-        float(model.cutoff),
-        ws.d_one,
-    )
+    extra = float(d_partials.copy_to_host()[:blocks].sum(dtype=np.float64))
 
-    # Reduce partials on GPU
-    extra = float(sum_reduce(ws.d_partials))
-    intra = float(ws.d_one.copy_to_host()[0])
+    # Intra on CPU (small K); uses float64 erfc from numpy
+    intra = _coulomb_intra_cpu(
+        mol_pos64,
+        mol_q64,
+        np.asarray(props.box, dtype=np.float64).reshape(3),
+        bool(props.periodic),
+        cutoff,
+        float(alpha),
+        float(model.coulomb_coeff),
+    )
 
     return float(np.array(extra + intra, dtype=FLOAT_DTYPE))
 
@@ -558,87 +610,183 @@ def lennard_jones_gpu(
     *,
     contribution: Contribution | None = None,
 ) -> float:
-    """
-    CUDA Lennard-Jones implementation (same rectangular+intra structure as coulomb_gpu).
-    Same correctness note: you usually want `data` to exclude the molecule for the "extra" part.
-    """
-    if cuda is None:
+    cu = _require_cuda()
+
+    if hasattr(data, "enable_gpu"):
+        data.enable_gpu(cuda=cu, pos_dtype=np.float32, q_dtype=np.float32, upload=True)
+
+    if not hasattr(data, "device_view"):
         raise RuntimeError(
-            "CUDA backend is unavailable.\n"
-            f"Reason: {CUDA_ERROR}\n\n"
-            "Typical fixes:\n"
-            "- Install a CUDA toolkit that provides libnvvm.so\n"
-            "- Ensure libnvvm.so is on your loader path\n"
-            "- Or run this force-set without the GPU backend."
+            "SystemData has no device_view(); install the GPU mirror in data.py first."
         )
 
-    data_pos = _pos_to_flat_f64(data.positions)
-    mol_pos = _pos_to_flat_f64(molecule_data.positions)
-    data_types = _as_i32_contig(data.atoms).reshape(-1)
-    mol_types = _as_i32_contig(molecule_data.atoms).reshape(-1)
+    d_x, d_y, d_z, d_q, d_t, sys_start, sys_size, *_ = data.device_view(cuda=cu)
+    N = int(sys_size)
 
-    M = data_types.size
-    N = mol_types.size
-    if data_pos.size != 3 * M:
-        raise ValueError("data.positions and data.atoms size mismatch")
-    if mol_pos.size != 3 * N:
-        raise ValueError(
-            "molecule_data.positions and molecule_data.atoms size mismatch"
-        )
+    m_start, m_stop = molecule_data.data_interval()
+    m_start = int(m_start)
+    m_stop = int(m_stop)
+    if not (0 <= m_start <= m_stop <= N):
+        m_start = -1
+        m_stop = -1
 
-    table = np.asarray(model.ljtable.table, dtype=np.float64)
-    if table.ndim != 3 or table.shape[2] != 2:
-        raise ValueError(f"model.ljtable.table must be (T,T,2), got {table.shape}")
+    # molecule upload (pos + types)
+    mol_pos64 = np.asarray(molecule_data.positions, dtype=np.float64)
+    K = int(mol_pos64.shape[0])
+    d_mx, d_my, d_mz, d_mq, d_mt = _get_mol_buffers(K)  # reuse q buffer, harmless
 
-    threads = TPB
-    blocks = (M + threads - 1) // threads
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 0], dtype=np.float32), to=d_mx)
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 1], dtype=np.float32), to=d_my)
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 2], dtype=np.float32), to=d_mz)
+    cu.to_device(np.ascontiguousarray(molecule_data.atoms, dtype=np.int32), to=d_mt)
 
-    ws = _ws()
-    ws.ensure_lj(M=M, N=N, blocks=blocks, table=table)
+    # LJ table on device
+    d_table = _get_lj_table_device(model)
 
-    ws.d_data_pos.copy_to_device(data_pos)
-    ws.d_mol_pos.copy_to_device(mol_pos)
-    ws.d_data_types.copy_to_device(data_types)
-    ws.d_mol_types.copy_to_device(mol_types)
-
-    box = _as_f64_contig(props.box).reshape(-1)
-    if box.size != 3:
-        raise ValueError("props.box must be length 3")
-    box0, box1, box2 = float(box[0]), float(box[1]), float(box[2])
-    inv0, inv1, inv2 = 1.0 / box0, 1.0 / box1, 1.0 / box2
+    box = np.asarray(props.box, dtype=np.float32).reshape(3)
     periodic = np.int32(1 if props.periodic else 0)
+    cutoff = float(model.cutoff)
+    cut2 = np.float32(cutoff * cutoff)
 
-    _lj_extra_flat_kernel[blocks, threads](
-        ws.d_data_pos,
-        ws.d_data_types,
-        ws.d_mol_pos,
-        ws.d_mol_types,
-        ws.d_lj_table,
-        box0,
-        box1,
-        box2,
-        inv0,
-        inv1,
-        inv2,
+    threads = 256
+    blocks = (N + threads - 1) // threads
+    d_partials = _get_partials(blocks)
+
+    _lj_extra_soa[blocks, threads](
+        d_x,
+        d_y,
+        d_z,
+        d_t,
+        N,
+        d_mx,
+        d_my,
+        d_mz,
+        d_mt,
+        K,
+        m_start,
+        m_stop,
+        box[0],
+        box[1],
+        box[2],
         periodic,
-        ws.d_partials,
+        cut2,
+        d_table,
+        d_partials,
     )
 
-    _lj_intra_flat_kernel[1, 1](
-        ws.d_mol_pos,
-        ws.d_mol_types,
-        ws.d_lj_table,
-        box0,
-        box1,
-        box2,
-        inv0,
-        inv1,
-        inv2,
-        periodic,
-        ws.d_one,
+    extra = float(d_partials.copy_to_host()[:blocks].sum(dtype=np.float64))
+
+    # Intra on CPU
+    intra = _lj_intra_cpu(
+        mol_pos64,
+        np.asarray(molecule_data.atoms, dtype=np.int32),
+        np.asarray(model.ljtable.table, dtype=np.float64),
+        np.asarray(props.box, dtype=np.float64).reshape(3),
+        bool(props.periodic),
+        cutoff,
     )
 
-    extra = float(sum_reduce(ws.d_partials))
-    intra = float(ws.d_one.copy_to_host()[0])
+    return float(np.array(extra + intra, dtype=FLOAT_DTYPE))
+
+
+def coulomb_lj_gpu(
+    data: SystemData,
+    molecule_data: SystemData,
+    props: SystemProperties,
+    model: ModelConstants,
+    *,
+    contribution: Contribution | None = None,
+) -> float:
+    """
+    Fused Coulomb + LJ. Use this if you want fewer kernel launches per evaluation.
+    """
+    cu = _require_cuda()
+
+    if hasattr(data, "enable_gpu"):
+        data.enable_gpu(cuda=cu, pos_dtype=np.float32, q_dtype=np.float32, upload=True)
+
+    if not hasattr(data, "device_view"):
+        raise RuntimeError(
+            "SystemData has no device_view(); install the GPU mirror in data.py first."
+        )
+
+    d_x, d_y, d_z, d_q, d_t, sys_start, sys_size, *_ = data.device_view(cuda=cu)
+    N = int(sys_size)
+
+    m_start, m_stop = molecule_data.data_interval()
+    m_start = int(m_start)
+    m_stop = int(m_stop)
+    if not (0 <= m_start <= m_stop <= N):
+        m_start = -1
+        m_stop = -1
+
+    mol_pos64 = np.asarray(molecule_data.positions, dtype=np.float64)
+    mol_q64 = np.asarray(molecule_data.charges, dtype=np.float64)
+    K = int(mol_q64.shape[0])
+    d_mx, d_my, d_mz, d_mq, d_mt = _get_mol_buffers(K)
+
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 0], dtype=np.float32), to=d_mx)
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 1], dtype=np.float32), to=d_my)
+    cu.to_device(np.ascontiguousarray(mol_pos64[:, 2], dtype=np.float32), to=d_mz)
+    cu.to_device(np.ascontiguousarray(mol_q64, dtype=np.float32), to=d_mq)
+    cu.to_device(np.ascontiguousarray(molecule_data.atoms, dtype=np.int32), to=d_mt)
+
+    d_table = _get_lj_table_device(model)
+
+    box = np.asarray(props.box, dtype=np.float32).reshape(3)
+    periodic = np.int32(1 if props.periodic else 0)
+    cutoff = float(model.cutoff)
+    cut2 = np.float32(cutoff * cutoff)
+    alpha = np.float32(_ewald_alpha(cutoff, float(model.tolerance)))
+    coulomb_coeff = np.float32(float(model.coulomb_coeff))
+
+    threads = 256
+    blocks = (N + threads - 1) // threads
+    d_partials = _get_partials(blocks)
+
+    _coulomb_lj_extra_soa[blocks, threads](
+        d_x,
+        d_y,
+        d_z,
+        d_q,
+        d_t,
+        N,
+        d_mx,
+        d_my,
+        d_mz,
+        d_mq,
+        d_mt,
+        K,
+        m_start,
+        m_stop,
+        box[0],
+        box[1],
+        box[2],
+        periodic,
+        alpha,
+        cut2,
+        coulomb_coeff,
+        d_table,
+        d_partials,
+    )
+
+    extra = float(d_partials.copy_to_host()[:blocks].sum(dtype=np.float64))
+
+    intra = _coulomb_intra_cpu(
+        mol_pos64,
+        mol_q64,
+        np.asarray(props.box, dtype=np.float64).reshape(3),
+        bool(props.periodic),
+        cutoff,
+        float(alpha),
+        float(model.coulomb_coeff),
+    ) + _lj_intra_cpu(
+        mol_pos64,
+        np.asarray(molecule_data.atoms, dtype=np.int32),
+        np.asarray(model.ljtable.table, dtype=np.float64),
+        np.asarray(props.box, dtype=np.float64).reshape(3),
+        bool(props.periodic),
+        cutoff,
+    )
 
     return float(np.array(extra + intra, dtype=FLOAT_DTYPE))

@@ -1,48 +1,51 @@
 from __future__ import annotations
 
+import csv
 import time
 from pathlib import Path
-import csv
 
 import numpy as np
+import plotly.colors as pc
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 # --- your project imports ---
-from molecsim.physics.calculations import full_potential, molecule_potential
-from molecsim.data.contributors import make_potcall, SystemPotentials
+from molecsim.data.contributors import SystemPotentials, make_potcall
 from molecsim.data.properties import SystemProperties
+from molecsim.data.rng import RNG
+from molecsim.physics.calculations import full_potential, molecule_potential
+from molecsim.physics.mc import metropolis
 from molecsim.physics.mutate import mutate_rotate, mutate_translate, propose_new
 from molecsim.physics.potentials import (
     coulomb,
-    lennard_jones,
-    coulomb_njit,
     coulomb_dense,
     coulomb_gpu,
+    coulomb_njit,
     coulomb_stream,
-    lennard_jones_njit,
+    lennard_jones,
     lennard_jones_dense,
     lennard_jones_gpu,
+    lennard_jones_njit,
     lennard_jones_stream,
 )
-from molecsim.physics.mc import metropolis
 from molecsim.utils.models import tip3p
-from molecsim.utils.place import randomized_system
 from molecsim.utils.parsers import parse_args, parse_com
-from molecsim.data.rng import RNG
-
+from molecsim.utils.place import randomized_system
 
 # -------------------------------
 # Internal sweep controls (no CLI)
 # -------------------------------
-_LOOP_MIN = 1_000_000
-_LOOP_MAX = 1_100_000
-_LOOP_POINTS = 2  # log-spaced points
+_LOOP_MIN = 100
+_LOOP_MAX = 3_000_000
+_LOOP_POINTS = 15  # log-spaced points
 
 _FULL_MIN = 10
-_FULL_MAX = 1_000
+_FULL_MAX = 10_000
 _FULL_POINTS = 12  # log-spaced points
+
 DARK_MODE = True
+
+# Plot colors
+COLORS = pc.qualitative.Dark24
 
 
 def _add_order_ref_line(
@@ -50,10 +53,10 @@ def _add_order_ref_line(
     N_list: list[int],
     y_list: list[float],
     order: int,
-    name: str,
     *,
-    row: int | None = None,
-    col: int | None = None,
+    color: str,
+    showlegend: bool = False,
+    name: str = "Asymptote O(N^k)",
 ) -> None:
     """Add an O(N^order) reference line anchored at the highest-N point."""
     if not N_list or not y_list:
@@ -66,19 +69,17 @@ def _add_order_ref_line(
     Ns = np.array(sorted(set(N_list)), dtype=float)
     y_ref = y_max * (Ns / N_max) ** order
 
-    trace = go.Scatter(
-        x=Ns.tolist(),
-        y=y_ref.tolist(),
-        mode="lines",
-        name=name,
-        line=dict(width=2, dash="dash"),
-        showlegend=True,
+    fig.add_trace(
+        go.Scatter(
+            x=Ns.tolist(),
+            y=y_ref.tolist(),
+            mode="lines",
+            name=name,
+            line=dict(width=2, dash="dash", color=color),
+            showlegend=showlegend,
+            hoverinfo="skip",
+        )
     )
-
-    if row is None or col is None:
-        fig.add_trace(trace)
-    else:
-        fig.add_trace(trace, row=row, col=col)
 
 
 def logspace_ints(nmin: int, nmax: int, k: int) -> list[int]:
@@ -162,7 +163,6 @@ def preflight_forces(
             forces = builder(props, model)
             sim = randomized_system(props, model, forces, rng)
 
-            # single mutation step
             old_mol, new_mol, _ = propose_new(
                 sim,
                 [mutate_rotate, mutate_translate],
@@ -186,7 +186,9 @@ def time_one_step(sim, forces, rng: RNG) -> int:
     """Compute-only single MC 'step' timing in ns."""
     mutation_functions = [mutate_rotate, mutate_translate]
     function_coefficients = [0.5, 1.0]
+
     t0 = time.perf_counter_ns()
+
     old_mol, new_mol, _ = propose_new(
         sim, mutation_functions, function_coefficients, rng
     )
@@ -194,6 +196,7 @@ def time_one_step(sim, forces, rng: RNG) -> int:
     new_E = molecule_potential(sim, new_mol, forces)
     dE = new_E.potential - old_E.potential
     _ = metropolis(sim.properties, sim.model, dE, rng)
+
     t1 = time.perf_counter_ns()
     return t1 - t0
 
@@ -207,6 +210,7 @@ def time_full(sim, forces) -> int:
 
 def _apply_report_style(fig: go.Figure, title: str) -> None:
     if DARK_MODE:
+        grid = "#44475a"
         fig.update_layout(
             template="plotly_dark",
             title=title,
@@ -217,11 +221,17 @@ def _apply_report_style(fig: go.Figure, title: str) -> None:
                 size=14,
                 color="#f8f8f2",
             ),
-            legend=dict(orientation="h", x=0.0, y=1.10),
-            margin=dict(l=60, r=20, t=70, b=55),
+            legend=dict(
+                orientation="v",
+                x=1.02,
+                y=1.0,
+                xanchor="left",
+                yanchor="top",
+            ),
+            margin=dict(l=60, r=260, t=70, b=55),
         )
-        grid = "#44475a"
     else:
+        grid = "#e6e6e6"
         fig.update_layout(
             template="plotly_white",
             title=title,
@@ -232,10 +242,15 @@ def _apply_report_style(fig: go.Figure, title: str) -> None:
                 size=14,
                 color="black",
             ),
-            legend=dict(orientation="h", x=0.0, y=1.10),
-            margin=dict(l=60, r=20, t=70, b=55),
+            legend=dict(
+                orientation="v",
+                x=1.02,
+                y=1.0,
+                xanchor="left",
+                yanchor="top",
+            ),
+            margin=dict(l=60, r=260, t=70, b=55),
         )
-        grid = "#e6e6e6"
 
     fig.update_xaxes(
         type="log",
@@ -253,16 +268,29 @@ def _apply_report_style(fig: go.Figure, title: str) -> None:
     )
 
 
+def _set_log_ymin(fig: go.Figure, all_y: list[float], ymin_ms: float = 0.1) -> None:
+    """Force y-axis to start at ymin_ms (log axis)."""
+    if not all_y:
+        return
+    ymax = max(all_y)
+    if ymax <= 0.0:
+        return
+    y0 = float(np.log10(ymin_ms))
+    y1 = float(np.log10(ymax * 1.2))
+    fig.update_yaxes(range=[y0, y1])
+
+
 def _write_plot(
     fig: go.Figure,
     html_path: Path,
     png_path: Path,
     svg_path: Path,
-    width_px: int = 1100,
+    width_px: int = 1200,
     height_px: int = 680,
 ) -> None:
     fig.write_html(html_path, include_plotlyjs="cdn")
     try:
+        # Requires: pip install -U kaleido
         fig.write_image(
             png_path, format="png", width=width_px, height=height_px, scale=1
         )
@@ -279,7 +307,12 @@ def main():
     import numba
 
     args = parse_args()
-    numba.set_num_threads(args.threads)
+
+    # Let the benchmark script control numba threads.
+    # (Also consider setting NUMBA_NUM_THREADS / OMP_NUM_THREADS in your shell for repeatability.)
+    if hasattr(args, "threads") and args.threads is not None:
+        numba.set_num_threads(int(args.threads))
+
     print("=== Config ===")
     print(f"Threads: {numba.get_num_threads()}")
 
@@ -293,7 +326,7 @@ def main():
     base_box = np.asarray(args.box, dtype=float)
 
     # ---------------------------------------------------
-    # Define multiple force sets here
+    # Force sets:
     # Each entry: (key, label, builder, ref_order_loop, ref_order_full)
     # ---------------------------------------------------
     force_sets = [
@@ -309,7 +342,6 @@ def main():
     # ---------------------------
     rng_pre = RNG(args.seed + 999)
 
-    # smallest nontrivial system
     pre_N = 100
     mols = {proto: pre_N}
     boxN = scale_box(base_box, base_mols, pre_N)
@@ -343,28 +375,27 @@ def main():
             periodic=args.periodic,
         )
 
-        # Build one sim per force set (keeps each benchmark consistent)
         for key, label, builder, _, _ in force_sets:
             forces = builder(props, model)
             sim = randomized_system(props, model, forces, rng)
 
             _ = time_one_step(sim, forces, rng)  # warm-up
 
-            times = np.empty(args.steps, dtype=np.int64)
-            for i in range(args.steps):
+            times = np.empty(int(args.steps), dtype=np.int64)
+            for i in range(int(args.steps)):
                 times[i] = time_one_step(sim, forces, rng)
-            step_ms = times.mean() * 1e-6
+            step_ms = float(times.mean() * 1e-6)
 
             loop_rows.append(
                 dict(
                     kind="loop",
                     force_key=key,
                     force_label=label,
-                    molecules=N,
+                    molecules=int(N),
                     Lx=float(boxN[0]),
                     Ly=float(boxN[1]),
                     Lz=float(boxN[2]),
-                    time_ms=float(step_ms),
+                    time_ms=step_ms,
                 )
             )
             print(f"[{key:>8s} LOOP N={N:6d}] step ≈ {step_ms:9.3f} ms")
@@ -374,70 +405,57 @@ def main():
         w.writeheader()
         w.writerows(loop_rows)
 
-    # Plot loop: main + inset focusing on highest-N region
-    fig_loop = make_subplots(
-        rows=1,
-        cols=2,
-        column_widths=[0.72, 0.28],
-        subplot_titles=("Main-loop step", "Inset: highest-N"),
-        horizontal_spacing=0.08,
+    # Plot loop (single plot)
+    fig_loop = go.Figure()
+    all_loop_y: list[float] = []
+
+    # One dashed legend entry representing all asymptotes
+    fig_loop.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="lines",
+            name="Asymptote O(N^k)",
+            line=dict(width=2, dash="dash", color="#aaaaaa"),
+            showlegend=True,
+            hoverinfo="skip",
+        )
     )
 
-    for key, label, _, ref_loop_order, _ in force_sets:
+    for idx, (key, label, _, ref_loop_order, _) in enumerate(force_sets):
         rows_k = [r for r in loop_rows if r["force_key"] == key]
         Ns = [int(r["molecules"]) for r in rows_k]
         Ys = [float(r["time_ms"]) for r in rows_k]
+        all_loop_y.extend(Ys)
 
+        c = COLORS[idx % len(COLORS)]
+
+        # One legend entry per benchmark series
         fig_loop.add_trace(
             go.Scatter(
                 x=Ns,
                 y=Ys,
                 mode="lines+markers",
                 name=label,
-                line=dict(width=2),
-                marker=dict(size=6),
-            ),
-            row=1,
-            col=1,
-        )
-        fig_loop.add_trace(
-            go.Scatter(
-                x=Ns,
-                y=Ys,
-                mode="lines+markers",
-                name=label,
-                showlegend=False,
-                line=dict(width=2),
-                marker=dict(size=6),
-            ),
-            row=1,
-            col=2,
+                line=dict(width=2, color=c),
+                marker=dict(size=6, color=c),
+                legendgroup=key,
+                showlegend=True,
+            )
         )
 
+        # Asymptote in same color, but no separate legend entry
         _add_order_ref_line(
             fig_loop,
             Ns,
             Ys,
             order=int(ref_loop_order),
-            name=f"{label}: O(N^{ref_loop_order}) ref",
-            row=1,
-            col=1,
-        )
-        _add_order_ref_line(
-            fig_loop,
-            Ns,
-            Ys,
-            order=int(ref_loop_order),
-            name=f"{label}: O(N^{ref_loop_order}) ref",
-            row=1,
-            col=2,
+            color=c,
+            showlegend=False,
         )
 
     _apply_report_style(fig_loop, "Benchmark: MC main-loop step (multiple force sets)")
-    fig_loop.update_xaxes(title_text="Molecules (N)", row=1, col=1)
-    fig_loop.update_yaxes(title_text="Time (ms)", row=1, col=1)
-    fig_loop.update_xaxes(title_text="N (zoom)", row=1, col=2)
-    fig_loop.update_yaxes(title_text="ms (zoom)", row=1, col=2)
+    _set_log_ymin(fig_loop, all_loop_y, ymin_ms=0.1)
 
     loop_html = outdir / "bench_loop_step_multi.html"
     loop_png = outdir / "bench_loop_step_multi.png"
@@ -469,18 +487,18 @@ def main():
             sim = randomized_system(props, model, forces, rng)
 
             _ = time_full(sim, forces)  # warm-up
-            full_ms = time_full(sim, forces) * 1e-6
+            full_ms = float(time_full(sim, forces) * 1e-6)
 
             full_rows.append(
                 dict(
                     kind="full",
                     force_key=key,
                     force_label=label,
-                    molecules=N,
+                    molecules=int(N),
                     Lx=float(boxN[0]),
                     Ly=float(boxN[1]),
                     Lz=float(boxN[2]),
-                    time_ms=float(full_ms),
+                    time_ms=full_ms,
                 )
             )
             print(f"[{key:>8s} FULL N={N:6d}] full ≈ {full_ms:9.3f} ms")
@@ -490,18 +508,30 @@ def main():
         w.writeheader()
         w.writerows(full_rows)
 
-    fig_full = make_subplots(
-        rows=1,
-        cols=1,
-        column_widths=[1],
-        subplot_titles=("Full potential", "Inset: highest-N"),
-        horizontal_spacing=0.08,
+    # Plot full (single plot)
+    fig_full = go.Figure()
+    all_full_y: list[float] = []
+
+    # One dashed legend entry representing all asymptotes
+    fig_full.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="lines",
+            name="Asymptote O(N^k)",
+            line=dict(width=2, dash="dash", color="#aaaaaa"),
+            showlegend=True,
+            hoverinfo="skip",
+        )
     )
 
-    for key, label, _, _, ref_full_order in force_sets:
+    for idx, (key, label, _, _, ref_full_order) in enumerate(force_sets):
         rows_k = [r for r in full_rows if r["force_key"] == key]
         Ns = [int(r["molecules"]) for r in rows_k]
         Ys = [float(r["time_ms"]) for r in rows_k]
+        all_full_y.extend(Ys)
+
+        c = COLORS[idx % len(COLORS)]
 
         fig_full.add_trace(
             go.Scatter(
@@ -509,11 +539,11 @@ def main():
                 y=Ys,
                 mode="lines+markers",
                 name=label,
-                line=dict(width=2),
-                marker=dict(size=6),
-            ),
-            row=1,
-            col=1,
+                line=dict(width=2, color=c),
+                marker=dict(size=6, color=c),
+                legendgroup=key,
+                showlegend=True,
+            )
         )
 
         _add_order_ref_line(
@@ -521,14 +551,12 @@ def main():
             Ns,
             Ys,
             order=int(ref_full_order),
-            name=f"{label}: O(N^{ref_full_order}) ref",
-            row=1,
-            col=1,
+            color=c,
+            showlegend=False,
         )
 
     _apply_report_style(fig_full, "Benchmark: full potential (multiple force sets)")
-    fig_full.update_xaxes(title_text="Molecules (N)", row=1, col=1)
-    fig_full.update_yaxes(title_text="Time (ms)", row=1, col=1)
+    _set_log_ymin(fig_full, all_full_y, ymin_ms=0.1)
 
     full_html = outdir / "bench_full_potential_multi.html"
     full_png = outdir / "bench_full_potential_multi.png"

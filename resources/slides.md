@@ -23,7 +23,17 @@ author: Christof Stein
 
 
 
-**Ensemble properties** in **statistical equilibrium**
+Goal: **Ensemble properties** in **statistical equilibrium**
+
+<div style="width:100%; overflow:auto;">
+
+</div>
+<div style="width:100%; aspect-ratio:16/9;">
+  <iframe
+    src="images/MCFull_inline.html"
+    style="width:100%; height:100%; border:0;">
+  </iframe>
+</div>
 
 
 ---
@@ -44,18 +54,18 @@ Molecules of size $n$ only $O(n * N) \rightarrow O(N)$!
 
 ```python
 def distance_squares(r_i, r_j):
-	dv = r_i[:, None, :] - r_j[None, :, :]
-	return np.einsum("mni->mn", dv * dv)
+    dv = r_i[:, None, :] - r_j[None, :, :]  # broadcast avoids loops
+    return np.einsum("mni->mn", dv * dv)    # calculate inner product
 
 def coulomb(r_i, r_j, q_i, q_j):
-    r2 = distance_squares(r_i, r_j)
+    r2 = distance_squares(r_i, r_j)         # get distances
     dists = np.sqrt(r2)
 
-    mask = extra_interaction_mask(r_i, r_j)
-    dists[~mask] = np.inf
+    mask = extra_interaction_mask(r_i, r_j) # ignore duplicate
+    dists[~mask] = np.inf                   # and self interaction
 
-    q_i_q_j = q_j[None, :] * q_i[:, None]
-    E = q_i_q_j / dists
+    q_i_q_j = q_j[None, :] * q_i[:, None]   # calculate potential 
+    E = q_i_q_j / dists                     # contribution through molecule
     return E
 ``` 
 
@@ -63,7 +73,7 @@ def coulomb(r_i, r_j, q_i, q_j):
 ## Benchmarks - Numpy Vectorized
 
 <div style="display:flex; justify-content:center;">
-  <div style="width:100%; height:400px;">
+  <div style="width:80%; height:550px;">
     <iframe src="images/bench_loop_step_multi.html"
             style="width:100%; height:100%; border:none;"></iframe>
   </div>
@@ -73,7 +83,7 @@ def coulomb(r_i, r_j, q_i, q_j):
 ## Implementation - Profiling
 
 <div style="display:flex; justify-content:center;">
-  <div style="width:100%; height:500px;">
+  <div style="width:110%; height:550px;">
     <iframe src="images/profile_report.html"
             style="width:100%; height:100%; border:none;"></iframe>
   </div>
@@ -88,7 +98,7 @@ def coulomb(r_i, r_j, q_i, q_j):
 Applied using **decorators** to existing code:
 
 ```python
-@njit(cache=True, fastmath=True, nogil=True, parallel=True)
+@njit(fastmath=True, parallel=True)
 def inner_product(x):
     s = 0.0
     for i in range(x.shape[0]):
@@ -122,7 +132,7 @@ def _coulomb_extra_dense(
 ## Benchmarking - Numba (CPU)
 
 <div style="display:flex; justify-content:center;">
-  <div style="width:100%; height:400px;">
+  <div style="width:80%; height:550px;">
     <iframe src="images/bench_loop_step_multi.html"
             style="width:100%; height:100%; border:none;"></iframe>
   </div>
@@ -135,24 +145,24 @@ def _coulomb_extra_dense(
 @cuda.jit
 def coulomb_kernel(data_pos, data_q, mol_pos, mol_q):
 	"""Each thread handles atom i from data and calculates E_i0 + ... + Eij"""
-	i = cuda.grid(1)
-    M = data_pos.shape[0]
-    N = mol_pos.shape[0]
-
-    smem = cuda.shared.array(256, dtype=np.float64)  # assumes blockDim<=256
-    tid = cuda.threadIdx.x
-    ...
+    i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x # get index of atom
+    acc = 0.0
+    if i < N:                            # compute the potential of this
+	    for j in range(K):           # atom in regards to all other atoms
+            acc += q_i * q_j * f(r)  
+    out_partial[i] = acc    # gather results
 ```
 
 ```python 
 # call kernel
 coulomb_extra_kernel[blocks, threads](data_pos, data_q, mol_pos, mol_q)
 ```
+
 ---
 ## Benchmarking - Numba (GPU)
 
 <div style="display:flex; justify-content:center;">
-  <div style="width:100%; height:400px;">
+  <div style="width:80%; height:550px;">
     <iframe src="images/bench_loop_step_multi.html"
             style="width:100%; height:100%; border:none;"></iframe>
   </div>
@@ -161,7 +171,11 @@ coulomb_extra_kernel[blocks, threads](data_pos, data_q, mol_pos, mol_q)
 --- 
 ## Summary
 
-![images/20260120_191730_r.png](images/20260120_191730.png)
-
+<div style="display:flex; justify-content:center;">
+  <div style="width:80%; height:550px;">
+    <iframe src="images/final_slide.html"
+            style="width:100%; height:100%; border:none;"></iframe>
+  </div>
+</div>
 
 
