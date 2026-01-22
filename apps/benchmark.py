@@ -39,7 +39,7 @@ _LOOP_MAX = 3_000_000
 _LOOP_POINTS = 15  # log-spaced points
 
 _FULL_MIN = 10
-_FULL_MAX = 10_000
+_FULL_MAX = 1_000
 _FULL_POINTS = 12  # log-spaced points
 
 DARK_MODE = True
@@ -55,6 +55,7 @@ def _add_order_ref_line(
     order: int,
     *,
     color: str,
+    legendgroup: str | None = None,
     showlegend: bool = False,
     name: str = "Asymptote O(N^k)",
 ) -> None:
@@ -76,6 +77,7 @@ def _add_order_ref_line(
             mode="lines",
             name=name,
             line=dict(width=2, dash="dash", color=color),
+            legendgroup=legendgroup,
             showlegend=showlegend,
             hoverinfo="skip",
         )
@@ -227,6 +229,7 @@ def _apply_report_style(fig: go.Figure, title: str) -> None:
                 y=1.0,
                 xanchor="left",
                 yanchor="top",
+                groupclick="togglegroup",
             ),
             margin=dict(l=60, r=260, t=70, b=55),
         )
@@ -248,6 +251,7 @@ def _apply_report_style(fig: go.Figure, title: str) -> None:
                 y=1.0,
                 xanchor="left",
                 yanchor="top",
+                groupclick="togglegroup",
             ),
             margin=dict(l=60, r=260, t=70, b=55),
         )
@@ -409,19 +413,6 @@ def main():
     fig_loop = go.Figure()
     all_loop_y: list[float] = []
 
-    # One dashed legend entry representing all asymptotes
-    fig_loop.add_trace(
-        go.Scatter(
-            x=[None],
-            y=[None],
-            mode="lines",
-            name="Asymptote O(N^k)",
-            line=dict(width=2, dash="dash", color="#aaaaaa"),
-            showlegend=True,
-            hoverinfo="skip",
-        )
-    )
-
     for idx, (key, label, _, ref_loop_order, _) in enumerate(force_sets):
         rows_k = [r for r in loop_rows if r["force_key"] == key]
         Ns = [int(r["molecules"]) for r in rows_k]
@@ -444,13 +435,14 @@ def main():
             )
         )
 
-        # Asymptote in same color, but no separate legend entry
+        # Asymptote: same legendgroup, toggles with series (groupclick="togglegroup")
         _add_order_ref_line(
             fig_loop,
             Ns,
             Ys,
             order=int(ref_loop_order),
             color=c,
+            legendgroup=key,
             showlegend=False,
         )
 
@@ -512,19 +504,6 @@ def main():
     fig_full = go.Figure()
     all_full_y: list[float] = []
 
-    # One dashed legend entry representing all asymptotes
-    fig_full.add_trace(
-        go.Scatter(
-            x=[None],
-            y=[None],
-            mode="lines",
-            name="Asymptote O(N^k)",
-            line=dict(width=2, dash="dash", color="#aaaaaa"),
-            showlegend=True,
-            hoverinfo="skip",
-        )
-    )
-
     for idx, (key, label, _, _, ref_full_order) in enumerate(force_sets):
         rows_k = [r for r in full_rows if r["force_key"] == key]
         Ns = [int(r["molecules"]) for r in rows_k]
@@ -546,12 +525,14 @@ def main():
             )
         )
 
+        # Asymptote: same legendgroup, toggles with series (groupclick="togglegroup")
         _add_order_ref_line(
             fig_full,
             Ns,
             Ys,
             order=int(ref_full_order),
             color=c,
+            legendgroup=key,
             showlegend=False,
         )
 
