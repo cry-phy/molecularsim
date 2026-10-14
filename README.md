@@ -23,21 +23,41 @@ cost per step to $O(N)$.
   system layout, minimum-image distance calculations, molecule mutation
   (translation/rotation) and the Metropolis loop.
 - **Potentials**: Lennard-Jones and Coulomb with several interchangeable
-  backends — pure Python, vectorized NumPy, Numba (CPU) and Numba (GPU/CUDA),
-  plus an Ewald summation variant.
-- **Profiling**: the vectorized NumPy version was profiled; the flame graph
-  below shows that most time is spent in `distance_squares` inside the Coulomb
-  and Lennard-Jones terms, which motivated the Numba backends.
-
-  ![Profiling flame graph of a headless run](resources/images/20260120_182121.png)
-
-- **Benchmarks**: the backends were benchmarked against each other, trading
-  ease of implementation for performance:
-
-  ![Performance vs. ease of implementation of the backends](resources/images/final_slide.png)
-
+  backends — vectorized NumPy, Numba on the CPU (simple, dense and streaming
+  variants) and Numba CUDA on the GPU, plus an Ewald summation variant.
+- **Profiling and acceleration**: profiling the NumPy version showed that most
+  of the time goes into building the distance matrices, which motivated the
+  Numba and CUDA backends. Each step up in performance (NumPy → Numba CPU →
+  Numba GPU) costs more implementation effort.
 - **Tooling**: an interactive Streamlit app, a headless runner for
   pre-equilibration, debug/inspection tools and a benchmark script.
+
+### Results
+
+**Performance.** Time for a single Monte-Carlo step (one molecule moved,
+Coulomb + Lennard-Jones) for an increasing number of molecules $N$, measured
+on an Intel Core i7-12700K and an NVIDIA GeForce RTX 3070 Ti:
+
+| Backend                   | $N$ = 1 902 | $N$ = 75 535 | $N$ = 3 000 000 | Speedup at 3 M |
+|---------------------------|------------:|-------------:|----------------:|---------------:|
+| NumPy (vectorized)        |     2.45 ms |     105 ms   |       4 462 ms  |           1×   |
+| Numba CPU (simple)        |     1.41 ms |      56.8 ms |       2 359 ms  |         1.9×   |
+| Numba CPU (dense)         |     0.42 ms |       5.04 ms|         237 ms  |          19×   |
+| Numba CPU (streaming)     |     0.32 ms |       5.01 ms|         204 ms  |          22×   |
+| Numba GPU (CUDA)          |     4.49 ms |       5.04 ms|        27.4 ms  |         163×   |
+
+The streaming CPU kernel is fastest for small systems. The GPU has a fixed
+launch overhead of about 4.5 ms, breaks even at roughly 75 000 molecules and
+is about 7× faster than the best CPU backend at 3 million molecules.
+
+**Structure.** Radial distribution functions sampled during a water
+simulation (histogram normalized by shell volume and scaled to 1 at 4–5 Å):
+
+![Radial distribution functions of water](resources/images/rdf_water.png)
+
+The resulting RDFs show clear structure, but they are not those of liquid
+water: the hydrogen-bond O–H peak near 1.8 Å is missing and the first O–O
+peak sits further out (≈ 3.1 Å instead of ≈ 2.8 Å) and much higher.
 
 The accompanying presentation is in [resources/slides.md](resources/slides.md)
 ([rendered HTML](resources/slides.html)).
