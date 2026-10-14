@@ -13,11 +13,11 @@ Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](re
 
 ## Contributors
 
+[Christof Stein](mailto:christof.stein@student.uibk.ac.at).
+
 [Niklas Peter](mailto:niklas.peter@student.uibk.ac.at)
 
 [Dmytro Iazykov](mailto:dmytro.iazykov@student.uibk.ac.at)
-
-[Christof Stein](mailto:christof.stein@student.uibk.ac.at).
 
 ## Development setup
 
