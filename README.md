@@ -2,6 +2,48 @@
 
 This repository contains the software and resources for *Laboratory Course Computational Physics, WS 24/25*.
 
+## Introduction
+
+MolecularSim is a Metropolis Monte-Carlo engine for rigid molecules (e.g.
+water) in a periodic box. Molecules are randomly translated and rotated and
+each move is accepted with probability $\min(1, e^{-\beta \Delta E})$, so the
+sampled configurations follow the Boltzmann distribution and ensemble
+properties (energies, radial distribution functions, ...) can be measured in
+statistical equilibrium. Interactions are modelled with Lennard-Jones and
+Coulomb pair potentials.
+
+The naive total energy scales as $O(N^2)$ in the number of atoms. Since a
+Monte-Carlo step only moves a single molecule, we compute only the energy
+difference $\Delta E = E'_\mathrm{mol} - E_\mathrm{mol}$, which reduces the
+cost per step to $O(N)$.
+
+### What has been done
+
+- **Simulation core**: Z-matrix/Cartesian input parsers, a structure-of-arrays
+  system layout, minimum-image distance calculations, molecule mutation
+  (translation/rotation) and the Metropolis loop.
+- **Potentials**: Lennard-Jones and Coulomb with several interchangeable
+  backends — pure Python, vectorized NumPy, Numba (CPU) and Numba (GPU/CUDA),
+  plus an Ewald summation variant.
+- **Profiling**: the vectorized NumPy version was profiled; the flame graph
+  below shows that most time is spent in `distance_squares` inside the Coulomb
+  and Lennard-Jones terms, which motivated the Numba backends.
+
+  ![Profiling flame graph of a headless run](resources/images/20260120_182121.png)
+
+- **Benchmarks**: the backends were benchmarked against each other, trading
+  ease of implementation for performance:
+
+  ![Performance vs. ease of implementation of the backends](resources/images/final_slide.png)
+
+- **Tooling**: an interactive Streamlit app, a headless runner for
+  pre-equilibration, debug/inspection tools and a benchmark script.
+
+The accompanying presentation is in [resources/slides.md](resources/slides.md)
+([rendered HTML](resources/slides.html)).
+
+## Project structure
+
 The project is structured as two different installable python packages:
 
 - [**`molecsim`** ](molecsim/) as the core simulation packages.
@@ -9,7 +51,7 @@ The project is structured as two different installable python packages:
 
 ## Resources
 
-Resources such as [Lab Guide](resources/MC_Mol.pdf) and [recommended Reading](resources/Essentials_Comp_Chem_Cramer.pdf) can be found in the [resources](resources) directory.
+Resources such as the [Lab Guide](resources/MC_Mol.pdf) can be found in the [resources](resources) directory.
 
 ## Contributors
 
@@ -116,3 +158,8 @@ python apps/calculate_between.py \
 - `molecsim` never depends on Streamlit or UI code.
 - `molecsim-tools` may change rapidly and is intended for development, analysis, and visualization.
 - The `apps/` directory only contains thin entry scripts and is not packaged.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 — see
+[LICENSE](LICENSE) for details.
